@@ -1,0 +1,3803 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pulse Song Sequencer</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body {
+            background-color: #0b0f1a;
+            color: #f8fafc;
+            font-family: 'Inter', system-ui, -apple-system, sans-serif;
+            touch-action: manipulation;
+            overflow-x: hidden;
+            user-select: none;
+        }
+
+        .step {
+            transition: background-color 0.1s, border-color 0.1s, box-shadow 0.1s;
+        }
+
+        .step.active {
+            background-color: #38bdf8;
+            box-shadow: 0 0 12px #0ea5e9;
+        }
+
+        .step.selected {
+            border: 2px solid #ffffff !important;
+            box-shadow: 0 0 15px rgba(255, 255, 255, 0.6), inset 0 0 10px rgba(255, 255, 255, 0.2);
+            z-index: 20;
+        }
+
+        .step.playing {
+            border: 2px solid #fbbf24;
+            transform: scale(1.05);
+            z-index: 30;
+        }
+
+        .timeline-clip {
+            transition: background-color 0.2s, border-color 0.2s;
+            min-width: 180px;
+            height: 120px;
+            position: relative;
+        }
+
+        .timeline-clip:hover {
+            border-color: #38bdf8;
+        }
+
+        .timeline-clip.active-edit {
+            border-color: #38bdf8;
+            background-color: rgba(56, 189, 248, 0.05);
+        }
+
+        .grid-cols-16 {
+            grid-template-columns: repeat(16, 1fr);
+        }
+
+        .timeline-clip.queued {
+            border-color: #a78bfa !important;
+            box-shadow: 0 0 15px rgba(167, 139, 250, 0.2);
+        }
+
+        .timeline-clip.loop-locked {
+            border-color: #fbbf24 !important;
+            background-color: rgba(251, 191, 36, 0.1) !important;
+            box-shadow: 0 0 15px rgba(251, 191, 36, 0.15);
+        }
+
+        #scrubber {
+            position: absolute;
+            top: 0;
+            bottom: 0;
+            width: 2px;
+            background-color: #fbbf24;
+            box-shadow: 0 0 10px #fbbf24;
+            z-index: 50;
+            pointer-events: none;
+            transition: left 0.1s linear;
+        }
+
+        #selectionMarquee {
+            position: absolute;
+            border: 1px solid rgba(56, 189, 248, 0.8);
+            background-color: rgba(56, 189, 248, 0.2);
+            z-index: 40;
+            pointer-events: none;
+            display: none;
+        }
+
+        .mini-dot {
+            width: 3px;
+            height: 3px;
+            border-radius: 1px;
+        }
+
+        #continueBtn:disabled {
+            opacity: 0.3;
+            cursor: not-allowed;
+            filter: grayscale(1);
+        }
+
+        .follow-active {
+            background-color: #0ea5e9;
+            color: white;
+            box-shadow: 0 0 15px rgba(14, 165, 233, 0.3);
+        }
+
+        .reset-confirm {
+            color: #fb7185;
+            border-color: rgba(251, 113, 133, 0.3);
+            background-color: rgba(251, 113, 133, 0.1);
+        }
+
+        .ai-gradient-text {
+            background: linear-gradient(to right, #38bdf8, #a78bfa, #fb7185);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .ai-border {
+            position: relative;
+            background: #0f172a;
+            border-radius: 1rem;
+        }
+
+        .ai-border::before {
+            content: "";
+            position: absolute;
+            inset: -2px;
+            border-radius: 1.1rem;
+            background: linear-gradient(45deg, #38bdf8, #a78bfa, #fb7185);
+            z-index: -1;
+            opacity: 0.5;
+        }
+
+        #toast {
+            visibility: hidden;
+            min-width: 250px;
+            background-color: #333;
+            color: #fff;
+            text-align: center;
+            border-radius: 8px;
+            padding: 16px;
+            position: fixed;
+            z-index: 100;
+            left: 50%;
+            bottom: 30px;
+            transform: translateX(-50%);
+            font-size: 14px;
+            opacity: 0;
+            transition: opacity 0.3s, bottom 0.3s;
+        }
+
+        #toast.show {
+            visibility: visible;
+            opacity: 1;
+            bottom: 50px;
+        }
+
+        .share-input-group {
+            display: flex;
+            gap: 8px;
+            margin-top: 16px;
+        }
+
+        .share-input-group input {
+            flex: 1;
+            background: #0f172a;
+            border: 1px solid #334155;
+            color: #94a3b8;
+            padding: 8px 12px;
+            border-radius: 8px;
+            font-family: monospace;
+            font-size: 14px;
+            text-align: center;
+            letter-spacing: 1px;
+            font-weight: bold;
+        }
+
+        .share-input-group button {
+            background: #38bdf8;
+            color: #0f172a;
+            font-weight: bold;
+            padding: 0 16px;
+            border-radius: 8px;
+            font-size: 12px;
+        }
+
+        .share-input-group button:hover {
+            background: #7dd3fc;
+        }
+
+        .unroll-active {
+            background-color: #a78bfa;
+            color: white;
+            border-color: #a78bfa;
+        }
+
+        /* Timeline Inserter */
+        .timeline-inserter {
+            width: 24px;
+            position: relative;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 30;
+            margin: 0 -2px;
+            /* Pull closer */
+        }
+
+        /* Hidden by default, visible on hover only if we wanted insert-between behavior, 
+           but based on previous turn we reverted this UI. Keeping CSS just in case but not using in HTML currently. */
+
+        ::-webkit-scrollbar {
+            height: 8px;
+            width: 8px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: #1e293b;
+            border-radius: 10px;
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: #475569;
+            border-radius: 10px;
+        }
+
+        ::-webkit-scrollbar-thumb:hover {
+            background: #64748b;
+        }
+
+        @keyframes pulse-sync {
+            0% {
+                opacity: 0.4;
+            }
+
+            50% {
+                opacity: 1;
+            }
+
+            100% {
+                opacity: 0.4;
+            }
+        }
+
+        .sync-active {
+            animation: pulse-sync 1.5s infinite;
+        }
+
+        /* FX Node Graph */
+        #fxOverlay {
+            background-image:
+                linear-gradient(rgba(30, 41, 59, 0.5) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(30, 41, 59, 0.5) 1px, transparent 1px);
+            background-size: 40px 40px;
+            background-color: #020617;
+        }
+
+        .fx-node {
+            position: absolute;
+            width: 160px;
+            background: rgba(15, 23, 42, 0.8);
+            backdrop-filter: blur(12px);
+            border: 1px solid rgba(56, 189, 248, 0.3);
+            border-radius: 8px;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+            color: #e2e8f0;
+            font-size: 11px;
+            user-select: none;
+            cursor: grab;
+            transition: border-color 0.2s, box-shadow 0.2s;
+            z-index: 10;
+        }
+
+        .fx-node:active {
+            cursor: grabbing;
+            border-color: #38bdf8;
+            box-shadow: 0 0 15px rgba(56, 189, 248, 0.2);
+        }
+
+        .fx-node.selected {
+            border-color: #f472b6;
+            box-shadow: 0 0 15px rgba(244, 114, 182, 0.3);
+        }
+
+        .fx-header {
+            padding: 8px 10px;
+            background: rgba(30, 41, 59, 0.5);
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 8px 8px 0 0;
+            font-weight: bold;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        .fx-port {
+            width: 12px;
+            height: 12px;
+            background: #475569;
+            border: 2px solid #94a3b8;
+            border-radius: 50%;
+            position: absolute;
+            top: 10px;
+            cursor: crosshair;
+            transition: all 0.2s;
+        }
+
+        .fx-port:hover {
+            background: #38bdf8;
+            border-color: white;
+            transform: scale(1.2);
+        }
+
+        .fx-port.connected {
+            background: #38bdf8;
+            border-color: #0ea5e9;
+        }
+
+        .fx-port-in {
+            left: -6px;
+        }
+
+        .fx-port-out {
+            right: -6px;
+        }
+
+        .fx-body {
+            padding: 10px;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        /* Sliders in nodes */
+        .fx-param {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+
+        .fx-param label {
+            color: #94a3b8;
+            font-size: 9px;
+            text-transform: uppercase;
+            font-weight: bold;
+        }
+
+        .fx-param input[type=range] {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 100%;
+            height: 4px;
+            background: #334155;
+            border-radius: 2px;
+            outline: none;
+        }
+
+        .fx-param input[type=range]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            width: 12px;
+            height: 12px;
+            background: #38bdf8;
+            border-radius: 50%;
+            cursor: pointer;
+            border: 2px solid #0f172a;
+        }
+
+        #fxCanvas {
+            position: absolute;
+            inset: 0;
+            pointer-events: none;
+            z-index: 5;
+        }
+
+        #nodeContextMenu {
+            position: fixed;
+            background: #1e293b;
+            border: 1px solid #475569;
+            border-radius: 8px;
+            padding: 4px;
+            min-width: 140px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+            z-index: 100;
+        }
+
+        .ctx-item {
+            padding: 8px 12px;
+            color: #e2e8f0;
+            font-size: 12px;
+            cursor: pointer;
+            border-radius: 4px;
+            transition: background 0.1s;
+        }
+
+        .ctx-item:hover {
+            background: #38bdf8;
+            color: #020617;
+            font-weight: bold;
+        }
+
+        /* Shift mode visual feedback for FX graph */
+        #fxOverlay.shift-mode {
+            background: rgba(251, 113, 133, 0.1);
+        }
+
+        #fxOverlay.shift-mode .fx-node {
+            box-shadow: 0 0 20px rgba(251, 113, 133, 0.3);
+        }
+
+        #fxOverlay.shift-mode::after {
+            content: 'SHIFT: Insert/Detach Mode';
+            position: fixed;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(251, 113, 133, 0.9);
+            color: white;
+            padding: 8px 16px;
+            border-radius: 8px;
+            font-size: 12px;
+            font-weight: bold;
+            z-index: 999;
+        }
+    </style>
+</head>
+
+<body class="min-h-screen flex flex-col items-center p-4 md:p-8">
+
+    <div class="max-w-7xl w-full flex flex-col gap-6">
+        <!-- Main Sequencer Card -->
+        <div id="editorCard"
+            class="bg-slate-900/90 p-6 rounded-3xl border border-slate-800 backdrop-blur-xl shadow-2xl transition-all duration-500">
+            <!-- Header -->
+            <div class="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 gap-6">
+                <div class="flex flex-col gap-1">
+                    <div class="flex items-center gap-3">
+                        <h1 class="text-3xl font-black tracking-tighter text-white">
+                            PULSE<span class="text-sky-500">STUDIO</span>
+                        </h1>
+                        <div id="syncStatus"
+                            class="flex items-center gap-1.5 text-[9px] font-bold uppercase tracking-widest text-slate-500 bg-black/40 px-2 py-1 rounded-full border border-slate-800">
+                            <div id="syncDot" class="w-1.5 h-1.5 rounded-full bg-slate-700 transition-colors"></div>
+                            <span id="syncText">Standby</span>
+                        </div>
+                    </div>
+                    <p class="text-slate-500 text-xs font-medium">Currently Editing Pattern <span id="patternDisplay"
+                            class="text-sky-400 font-mono bg-sky-400/10 px-1.5 py-0.5 rounded">01</span></p>
+                </div>
+
+                <div class="flex items-center gap-3 bg-black/40 p-2.5 rounded-2xl border border-slate-800 flex-wrap">
+
+                    <!-- Scale Selector -->
+                    <div class="flex items-center px-2 border-r border-slate-700 mr-2 gap-2" id="scaleControlGroup">
+                        <span class="text-[9px] uppercase tracking-widest text-slate-500 font-bold">Scale</span>
+                        <select id="scaleSelect"
+                            class="bg-slate-900 text-sky-400 text-xs font-bold py-1 px-2 rounded border border-slate-700 focus:outline-none focus:border-sky-500">
+                            <option value="C Maj Pent">C Maj Pent</option>
+                            <option value="A Min Pent">A Min Pent</option>
+                            <option value="C Major">C Major</option>
+                            <option value="A Minor">A Minor</option>
+                            <option value="Blues">Blues</option>
+                            <option value="Phrygian">Phrygian</option>
+                        </select>
+                        <button id="unrollBtn"
+                            class="px-2 py-1 rounded text-slate-500 hover:text-white border border-slate-700 transition-all text-xs font-bold flex items-center gap-1"
+                            title="Unroll Piano (Full Octave)">
+                            <span>🎹</span>
+                        </button>
+                    </div>
+
+                    <!-- Share/Load -->
+                    <div class="flex gap-1 border-r border-slate-700 pr-3 mr-1">
+                        <button id="loadBtn"
+                            class="p-2 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-all"
+                            title="Load Song">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24"
+                                fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"
+                                stroke-linejoin="round">
+                                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                                <polyline points="7 10 12 15 17 10" />
+                                <line x1="12" y1="15" x2="12" y2="3" />
+                            </svg>
+                        </button>
+                        <button id="shareBtn"
+                            class="p-2 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-all"
+                            title="Share Song">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24"
+                                fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"
+                                stroke-linejoin="round">
+                                <circle cx="18" cy="5" r="3" />
+                                <circle cx="6" cy="12" r="3" />
+                                <circle cx="18" cy="19" r="3" />
+                                <line x1="8.59" y1="13.51" x2="15.42" y2="17.49" />
+                                <line x1="15.41" y1="6.51" x2="8.59" y2="10.49" />
+                            </svg>
+                        </button>
+                    </div>
+
+                    <!-- Random Pattern Button -->
+                    <button id="randomBtn"
+                        class="px-3 py-2 rounded-xl font-bold text-xs uppercase tracking-wider text-white bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-500 hover:to-indigo-500 transition-all active:scale-95 shadow-lg shadow-violet-500/20 flex items-center gap-1 mr-1"
+                        title="Left-Click: Randomize | Right-Click: Type Style">
+                        <span>🎲 Pattern</span>
+                    </button>
+
+                    <!-- Remix Sounds Button -->
+                    <button id="remixBtn"
+                        class="px-3 py-2 rounded-xl font-bold text-xs uppercase tracking-wider text-white bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 transition-all active:scale-95 shadow-lg shadow-emerald-500/20 flex items-center gap-1 mr-2"
+                        title="Randomize Instrument Sounds">
+                        <span>🔊 Remix</span>
+                    </button>
+
+                    <!-- Undo/Redo -->
+                    <div class="flex gap-1 mr-2">
+                        <button id="undoBtn"
+                            class="p-2 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-all disabled:opacity-30 disabled:cursor-not-allowed"
+                            title="Undo (Ctrl+Z)" disabled>
+                            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24"
+                                fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"
+                                stroke-linejoin="round">
+                                <path d="M3 7v6h6" />
+                                <path d="M21 17a9 9 0 0 0-9-9 9 9 0 0 0-6 2.3L3 13" />
+                            </svg>
+                        </button>
+                        <button id="redoBtn"
+                            class="p-2 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-all disabled:opacity-30 disabled:cursor-not-allowed"
+                            title="Redo (Ctrl+Y)" disabled>
+                            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24"
+                                fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"
+                                stroke-linejoin="round">
+                                <path d="M21 7v6h-6" />
+                                <path d="M3 17a9 9 0 0 1 9-9 9 9 0 0 1 6 2.3l3 2.7" />
+                            </svg>
+                        </button>
+                    </div>
+
+                    <!-- Reset -->
+                    <button id="resetBtn"
+                        class="px-2 py-2 rounded-xl font-bold text-[10px] uppercase tracking-wider text-slate-500 hover:text-rose-400 transition-all active:scale-95 mr-1">
+                        Reset
+                    </button>
+
+                    <!-- FX Toggle -->
+                    <button id="fxToggleBtn"
+                        class="px-3 py-2 rounded-xl font-bold text-xs uppercase tracking-wider text-slate-300 bg-slate-800 hover:bg-slate-700 border border-slate-700 transition-all active:scale-95 flex items-center gap-1 mr-2"
+                        title="Open FX Graph">
+                        <span>⚡ FX</span>
+                    </button>
+
+                    <button id="playBtn"
+                        class="bg-sky-500 hover:bg-sky-400 text-white px-5 py-2.5 rounded-xl font-bold flex items-center gap-2 transition-all active:scale-95 shadow-lg shadow-sky-500/20">
+                        <svg id="playIcon" xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24"
+                            fill="currentColor">
+                            <path d="M8 5v14l11-7z" />
+                        </svg>
+                        <span id="playText" class="text-sm">START</span>
+                    </button>
+
+                    <div class="flex flex-col items-center px-4 border-l border-slate-800">
+                        <span class="text-[9px] uppercase tracking-widest text-slate-500 font-bold mb-0.5">Tempo</span>
+                        <div class="flex items-center">
+                            <input type="number" id="bpmInput" value="120" min="40" max="240"
+                                class="bg-transparent text-lg font-mono text-sky-400 w-12 text-center focus:outline-none">
+                            <span class="text-[10px] text-slate-600 font-bold">BPM</span>
+                        </div>
+                    </div>
+
+                    <button id="continueBtn" disabled
+                        class="bg-emerald-500 hover:bg-emerald-400 text-white px-5 py-2.5 rounded-xl font-bold flex items-center gap-2 transition-all active:scale-95 shadow-lg shadow-emerald-500/20 ml-2">
+                        <span class="text-sm">CONTINUE</span>
+                        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none"
+                            stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="m9 18 6-6-6-6" />
+                        </svg>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Grid -->
+            <div class="overflow-x-auto pb-2 group relative" id="gridWrapper">
+                <div id="gridContainer" class="grid grid-cols-16 gap-1.5 min-w-[850px] relative select-none">
+                    <!-- JS Injected -->
+                    <div id="selectionMarquee"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Arrangement Timeline -->
+        <div class="w-full bg-slate-900/40 rounded-3xl border border-slate-800/60 p-1 flex flex-col">
+            <div class="p-4 border-b border-slate-800/60 flex justify-between items-center">
+                <h3 class="text-slate-400 uppercase tracking-[0.2em] text-[10px] font-black flex items-center gap-2">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none"
+                        stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+                        <circle cx="12" cy="12" r="10" />
+                        <polygon points="10 8 16 12 10 16 10 8" />
+                    </svg>
+                    Arrangement View
+                </h3>
+
+                <div class="flex items-center gap-6">
+                    <!-- Follow Toggle Switch -->
+                    <label class="flex items-center gap-2 cursor-pointer group select-none">
+                        <span
+                            class="text-[9px] font-bold uppercase text-slate-500 tracking-wider group-hover:text-slate-400 transition-colors">Follow</span>
+                        <div class="relative">
+                            <input type="checkbox" id="followToggle" class="sr-only peer" checked>
+                            <div
+                                class="w-8 h-4 bg-slate-800 border border-slate-600 rounded-full peer peer-focus:ring-2 peer-focus:ring-sky-500/20 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[1px] after:left-[1px] after:bg-slate-400 after:border-gray-300 after:border after:rounded-full after:h-3.5 after:w-3.5 after:transition-all peer-checked:bg-sky-500 peer-checked:border-sky-500 peer-checked:after:bg-white">
+                            </div>
+                        </div>
+                    </label>
+
+                    <div
+                        class="text-[10px] text-slate-600 font-bold uppercase tracking-widest border-l border-slate-700 pl-6">
+                        <span id="songTime">0:00</span> / <span id="totalTime">0:00</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="flex overflow-x-auto relative min-h-[140px] p-2" id="timelineWrapper">
+                <!-- Scrubber travels in here -->
+                <div id="timelineContainer" class="flex gap-2 relative h-full">
+                    <div id="scrubber" class="hidden"></div>
+                    <div id="timelineMarquee"
+                        class="absolute border border-sky-400 bg-sky-400/20 z-50 pointer-events-none hidden"></div>
+                    <!-- Timeline blocks appear here -->
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- FX Node Overlay -->
+    <div id="fxOverlay" class="fixed inset-0 z-[60] hidden transition-opacity duration-300 opacity-0">
+        <div class="absolute top-4 right-4 z-50">
+            <button id="closeFxBtn"
+                class="bg-slate-900/80 text-white px-4 py-2 rounded-lg border border-slate-700 hover:bg-slate-800 font-bold backdrop-blur">
+                Done
+            </button>
+        </div>
+        <div class="absolute top-4 left-4 z-50 pointer-events-none">
+            <h2 class="text-2xl font-black text-white/20 tracking-tighter">FX GRAPH</h2>
+            <p class="text-xs text-sky-500/50 font-mono">Right-Click to Add Node</p>
+        </div>
+
+        <canvas id="fxCanvas"></canvas>
+        <div id="fxNodesContainer" class="absolute inset-0 overflow-hidden">
+            <!-- Nodes injected here -->
+        </div>
+
+        <!-- Context Menu -->
+        <div id="nodeContextMenu" class="hidden">
+            <div class="ctx-item" data-type="delay">Delay</div>
+            <div class="ctx-item" data-type="reverb">Reverb</div>
+            <div class="ctx-item" data-type="distortion">Distortion</div>
+            <div class="ctx-item" data-type="filter">Filter</div>
+            <div class="ctx-item" data-type="compressor">Compressor</div>
+            <div class="ctx-item" data-type="lfo" style="opacity:0.5; cursor:not-allowed">LFO (Coming Soon)</div>
+        </div>
+    </div>
+
+    <!-- AI Modal -->
+    <div id="aiModal"
+        class="fixed inset-0 bg-slate-950/90 hidden items-center justify-center z-[100] backdrop-blur-sm transition-opacity opacity-0">
+        <div class="ai-border p-8 max-w-lg w-full m-4 transform scale-95 transition-all duration-300"
+            id="aiModalContent">
+            <h3 class="text-2xl font-black text-white mb-2 flex items-center gap-2">
+                <span class="text-3xl">✨</span> Pattern Generator
+            </h3>
+            <p class="text-slate-400 text-sm mb-6">Type a style (e.g. "Techno", "Trap", "Rock") or describe a vibe.
+                <span class="text-sky-400">Press Enter</span>.
+            </p>
+
+            <textarea id="aiPromptInput"
+                class="w-full bg-slate-900/50 border border-slate-700 rounded-xl p-4 text-white placeholder-slate-600 focus:outline-none focus:border-violet-500 focus:ring-1 focus:ring-violet-500 transition-all mb-4 resize-none h-32"
+                placeholder="E.g., A driving techno beat..."></textarea>
+
+            <div class="flex justify-end gap-3">
+                <button id="closeAiBtn"
+                    class="px-6 py-2 rounded-xl font-bold text-sm text-slate-400 hover:text-white hover:bg-slate-800 transition-all">Cancel</button>
+                <button id="generateAiBtn"
+                    class="px-8 py-2 rounded-xl font-bold text-sm text-white bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-500 hover:to-indigo-500 shadow-lg shadow-violet-500/20 transition-all flex items-center gap-2">
+                    <span>Generate</span>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Share Modal -->
+    <div id="shareModal"
+        class="fixed inset-0 bg-slate-950/90 hidden items-center justify-center z-[100] backdrop-blur-sm transition-opacity opacity-0">
+        <div class="bg-slate-900 border border-slate-700 p-8 max-w-md w-full m-4 rounded-2xl shadow-2xl transform scale-95 transition-all duration-300"
+            id="shareModalContent">
+            <h3 class="text-xl font-bold text-white mb-2">Share Your Song</h3>
+            <p class="text-slate-400 text-sm">Copy this <b>Song ID</b> and send it to your friend. They can use the
+                "Load" button to play it.</p>
+
+            <div class="share-input-group">
+                <input type="text" id="shareUrlInput" readonly value="Generating ID...">
+                <button id="copyShareLinkBtn">Copy ID</button>
+            </div>
+
+            <div class="flex justify-end mt-6">
+                <button id="closeShareBtn" class="text-slate-500 hover:text-white text-sm font-bold">Close</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Load Modal -->
+    <div id="loadModal"
+        class="fixed inset-0 bg-slate-950/90 hidden items-center justify-center z-[100] backdrop-blur-sm transition-opacity opacity-0">
+        <div class="bg-slate-900 border border-slate-700 p-8 max-w-md w-full m-4 rounded-2xl shadow-2xl transform scale-95 transition-all duration-300"
+            id="loadModalContent">
+            <h3 class="text-xl font-bold text-white mb-2">Load a Song</h3>
+            <p class="text-slate-400 text-sm">Paste a <b>Song ID</b> from a friend to load their project.</p>
+
+            <div class="share-input-group">
+                <input type="text" id="loadIdInput" placeholder="Paste Song ID here..."
+                    class="focus:outline-none focus:border-sky-500">
+                <button id="confirmLoadBtn" class="bg-emerald-500 hover:bg-emerald-400 text-white">Load</button>
+            </div>
+
+            <div class="flex justify-end mt-6">
+                <button id="closeLoadBtn" class="text-slate-500 hover:text-white text-sm font-bold">Close</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Toast -->
+    <div id="toast">Link copied to clipboard!</div>
+
+    <!-- Audio Init Overlay -->
+    <div id="welcomeOverlay"
+        class="fixed inset-0 bg-slate-950/98 flex items-center justify-center z-50 transition-opacity duration-700">
+        <div class="text-center p-8 max-w-sm">
+            <div
+                class="w-24 h-24 bg-sky-500/10 border-2 border-sky-500/20 rounded-full flex items-center justify-center mx-auto mb-8 animate-pulse shadow-[0_0_80px_rgba(14,165,233,0.2)]">
+                <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none"
+                    stroke="#0ea5e9" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z" />
+                </svg>
+            </div>
+            <h2 class="text-3xl font-black mb-3 text-white tracking-tighter italic">PULSE STUDIO</h2>
+            <p class="text-slate-500 text-sm mb-10 leading-relaxed font-medium">Professional grade pattern sequencing.
+                Cloud-synced arrangement.</p>
+            <button id="initBtn"
+                class="w-full bg-white text-slate-950 px-8 py-4 rounded-2xl font-black text-xs tracking-widest hover:bg-sky-400 hover:text-white transition-all transform active:scale-95 shadow-xl">
+                BOOT ENGINE
+            </button>
+        </div>
+    </div>
+
+    <!-- Firebase SDKs -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, onAuthStateChanged, signInAnonymously, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, doc, setDoc, getDoc, addDoc, collection } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // --- Firebase Config & Init ---
+        let db, auth, appId;
+        const firebaseReady = typeof __firebase_config !== 'undefined';
+
+        if (firebaseReady) {
+            const firebaseConfig = JSON.parse(__firebase_config);
+            const app = initializeApp(firebaseConfig);
+            auth = getAuth(app);
+            db = getFirestore(app);
+            appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+        } else {
+            console.warn("Firebase config not found. Persistence and sharing will be disabled.");
+            appId = 'local-dev';
+            // Placeholder for db/auth to prevent crashes
+            db = null;
+            auth = { onAuthStateChanged: (cb) => cb(null) };
+        }
+        let currentUser = null;
+
+        // --- Gemini API Key (Not used in this version) ---
+        const apiKey = "";
+
+        // --- Musical Constants ---
+        const STEPS_PER_PATTERN = 16;
+
+        // Frequencies for C4-C5 range (Middle C to Tenor C)
+        const FREQS = {
+            'E5': 659.25, 'D#5': 622.25, 'D5': 587.33, 'C#5': 554.37,
+            'C5': 523.25, 'B4': 493.88, 'A#4': 466.16, 'A4': 440.00, 'G#4': 415.30, 'G4': 392.00,
+            'F#4': 369.99, 'F4': 349.23, 'E4': 329.63, 'D#4': 311.13, 'D4': 293.66, 'C#4': 277.18, 'C4': 261.63,
+            'A3': 220.00, 'G3': 196.00 // Extensions for minor pent
+        };
+
+        const SCALES = {
+            // Full 8-note definitions (7 scale + octave or extended)
+            'C Maj Pent': { labels: ['E5', 'D5', 'C5', 'A4', 'G4', 'E4', 'D4', 'C4'] }, // Extended
+            'A Min Pent': { labels: ['C5', 'A4', 'G4', 'E4', 'D4', 'C4', 'A3', 'G3'] }, // Extended
+            'C Major': { labels: ['C5', 'B4', 'A4', 'G4', 'F4', 'E4', 'D4', 'C4'] }, // Diatonic
+            'A Minor': { labels: ['A4', 'G4', 'F4', 'E4', 'D4', 'C4', 'B3', 'A3'] }, // Diatonic
+            'Blues': { labels: ['G4', 'F#4', 'F4', 'D#4', 'D4', 'C4', 'A#3', 'A3'] },
+            'Phrygian': { labels: ['C5', 'A#4', 'G#4', 'G4', 'F4', 'D#4', 'C#4', 'C4'] } // C Phrygian
+        };
+
+        const CHROMATIC_LABELS = ['C5', 'B4', 'A#4', 'A4', 'G#4', 'G4', 'F#4', 'F4', 'E4', 'D#4', 'D4', 'C#4', 'C4'];
+
+        const DRUM_KITS = {
+            'Classic 808': {
+                kick: { freq: 55, decay: 0.8 },
+                snare: { freq: 1500, decay: 0.2, mix: 0.5 },
+                hat: { freq: 4000, decay: 0.05 }
+            },
+            'Modern Trap': {
+                kick: { freq: 45, decay: 1.2 },
+                snare: { freq: 2000, decay: 0.15, mix: 0.7 },
+                hat: { freq: 6000, decay: 0.03 }
+            },
+            'Industrial': {
+                kick: { freq: 65, decay: 0.4 },
+                snare: { freq: 800, decay: 0.5, mix: 0.4 },
+                hat: { freq: 2500, decay: 0.1 }
+            },
+            'LoFi Vinyl': {
+                kick: { freq: 50, decay: 0.2 },
+                snare: { freq: 1200, decay: 0.3, mix: 0.3 },
+                hat: { freq: 3000, decay: 0.08 }
+            },
+            'Techno 909': {
+                kick: { freq: 48, decay: 0.6 },
+                snare: { freq: 1800, decay: 0.25, mix: 0.6 },
+                hat: { freq: 5000, decay: 0.06 }
+            },
+            'Deep House': {
+                kick: { freq: 52, decay: 0.5 },
+                snare: { freq: 1400, decay: 0.2, mix: 0.4 },
+                hat: { freq: 4500, decay: 0.04 }
+            },
+            'Vintage Rock': {
+                kick: { freq: 80, decay: 0.3 },
+                snare: { freq: 800, decay: 0.4, mix: 0.3 },
+                hat: { freq: 3500, decay: 0.12 }
+            },
+            'Glitch': {
+                kick: { freq: 110, decay: 0.1 },
+                snare: { freq: 3000, decay: 0.05, mix: 0.8 },
+                hat: { freq: 10000, decay: 0.02 }
+            },
+            'Minimal': {
+                kick: { freq: 40, decay: 0.2 },
+                snare: { freq: 1000, decay: 0.1, mix: 0.2 },
+                hat: { freq: 9000, decay: 0.01 }
+            },
+            'Cinematic': {
+                kick: { freq: 30, decay: 1.5 },
+                snare: { freq: 500, decay: 1.0, mix: 0.5 },
+                hat: { freq: 1500, decay: 0.5 }
+            }
+        };
+
+        const DEFAULT_SOUND_CONFIG = {
+            synth: { type: 'sawtooth', attack: 0.01, release: 0.1, filter: 3000 },
+            kick: { freq: 150, decay: 0.4 },
+            snare: { freq: 1200, decay: 0.15, mix: 0.5 },
+            hat: { freq: 8000, decay: 0.04 }
+        };
+
+        let soundConfig = JSON.parse(JSON.stringify(DEFAULT_SOUND_CONFIG));
+        let lastDrumKitName = 'Classic 808';
+
+        function randomizeDrums() {
+            const kitNames = Object.keys(DRUM_KITS);
+            const availableKits = kitNames.filter(name => name !== lastDrumKitName);
+
+            // Graceful probability: weigh by how different they are? 
+            // Simplified: just pick from available to avoid repeat.
+            const newKitName = availableKits[Math.floor(Math.random() * availableKits.length)];
+            const kit = DRUM_KITS[newKitName];
+
+            soundConfig.kick = { ...kit.kick };
+            soundConfig.snare = { ...kit.snare };
+            soundConfig.hat = { ...kit.hat };
+
+            // Also randomize synth a bit
+            const synthTypes = ['sine', 'triangle', 'square'];
+            soundConfig.synth.type = synthTypes[Math.floor(Math.random() * synthTypes.length)];
+            soundConfig.synth.filter = 500 + Math.random() * 3000;
+
+            lastDrumKitName = newKitName;
+            showToast(`Drum Kit: ${newKitName}`);
+            triggerDebouncedSave();
+        }
+
+        const DEFAULT_DRUM_ROWS = [
+            { label: 'Hi-Hat', color: 'bg-amber-500/5', activeColor: 'bg-amber-500', type: 'hat' },
+            { label: 'Snare', color: 'bg-orange-500/5', activeColor: 'bg-orange-500', type: 'snare' },
+            { label: 'Kick', color: 'bg-rose-500/5', activeColor: 'bg-rose-500', type: 'kick' }
+        ];
+
+
+
+        // --- State Management ---
+        let audioCtx = null;
+        let isPlaying = false;
+        let isFollowMode = true;
+        let isUnrolled = false;
+        let currentScale = 'C Maj Pent';
+        // Per-Pattern State (Initialized with 1st pattern)
+        let patternScales = ['C Maj Pent'];
+        let drumRows = JSON.parse(JSON.stringify(DEFAULT_DRUM_ROWS)); // Mutable drum config
+
+
+        let bpm = 120;
+        let timerID = null;
+        let nextNoteTime = 0;
+        let saveTimeout = null;
+        let resetTimeout = null;
+        let patternClipboard = null;
+        let desiredNoteDuration = 1;
+
+        // History State
+        let historyStack = [];
+        let redoStack = [];
+
+        // Drag/Select State
+        let selectedNotes = new Set(); // "r,c" strings
+        let isSelecting = false;
+        let selectionStart = null; // {x, y} relative to grid container
+        let isDragging = false;
+        let isCopyDrag = false;
+        let dragStart = null; // {x, y}
+        let dragStartSelection = []; // Array of {r, c} objects
+        let dragDirection = null; // 'h' or 'v'
+        // CACHED GEOMETRY
+        let cachedGridRect = null;
+        let cachedCellWidth = 0;
+        let cachedCellHeight = 0;
+
+        let song = [
+            generateBlankGrid(false)
+        ];
+
+        let editingPatternIndex = 0;
+        let playbackPatternIndex = 0;
+        let playbackStepIndex = 0;
+        let queuedPatternIndex = -1;
+        let loopLockedPatternIndex = -1;
+
+        // Resize state
+        let isResizingNote = false;
+        let resizeStart = null;
+        let resizeStartDuration = 1;
+        let resizeNotePos = { r: 0, c: 0 };
+
+        let selectedParts = new Set(); // Set of indices
+        let isTimelineSelecting = false;
+        let timelineSelectionStart = null;
+        let isTimelineDragging = false;
+        let isTimelineWaitingToDrag = false;
+        let isTimelineCopyDrag = false;
+        let timelineDragStart = null;
+        let timelineDragStartIndex = -1;
+        let isTimelineBusy = false; // Prevents click after drag/marquee
+
+        function generateBlankGrid(unrolled) {
+            const synthRows = unrolled ? 16 : 8;
+            const sCount = unrolled ? 13 : 8;
+            const rows = sCount + drumRows.length;
+            return Array(rows).fill().map(() => Array(STEPS_PER_PATTERN).fill(null));
+        }
+
+        function isPatternEmpty(grid) {
+            for (let r = 0; r < grid.length; r++) {
+                for (let c = 0; c < grid[r].length; c++) {
+                    if (grid[r][c] !== null) return false;
+                }
+            }
+            return true;
+        }
+
+        // --- Undo/Redo Logic ---
+        function pushToHistory() {
+            const state = {
+                song: JSON.parse(JSON.stringify(song)),
+                bpm: bpm,
+                isUnrolled: isUnrolled,
+                currentScale: currentScale,
+                patternScales: JSON.parse(JSON.stringify(patternScales)),
+                editingPatternIndex: editingPatternIndex,
+                selectedNotes: Array.from(selectedNotes),
+                drumRows: JSON.parse(JSON.stringify(drumRows)),
+                soundConfig: JSON.parse(JSON.stringify(soundConfig))
+            };
+            historyStack.push(state);
+            if (historyStack.length > 50) historyStack.shift();
+            redoStack = [];
+            updateUndoRedoUI();
+        }
+
+        function undo() {
+            if (historyStack.length === 0) return;
+            const currentState = {
+                song: JSON.parse(JSON.stringify(song)),
+                bpm: bpm,
+                isUnrolled: isUnrolled,
+                currentScale: currentScale,
+                patternScales: JSON.parse(JSON.stringify(patternScales)),
+                editingPatternIndex: editingPatternIndex,
+                selectedNotes: Array.from(selectedNotes),
+                drumRows: JSON.parse(JSON.stringify(drumRows)),
+                soundConfig: JSON.parse(JSON.stringify(soundConfig))
+            };
+            redoStack.push(currentState);
+            const prevState = historyStack.pop();
+            applyState(prevState);
+            updateUndoRedoUI();
+            showToast("Undo");
+        }
+
+        function redo() {
+            if (redoStack.length === 0) return;
+            const currentState = {
+                song: JSON.parse(JSON.stringify(song)),
+                bpm: bpm,
+                isUnrolled: isUnrolled,
+                currentScale: currentScale,
+                patternScales: JSON.parse(JSON.stringify(patternScales)),
+                editingPatternIndex: editingPatternIndex,
+                selectedNotes: Array.from(selectedNotes),
+                drumRows: JSON.parse(JSON.stringify(drumRows)),
+                soundConfig: JSON.parse(JSON.stringify(soundConfig))
+            };
+            historyStack.push(currentState);
+            const nextState = redoStack.pop();
+            applyState(nextState);
+            updateUndoRedoUI();
+            showToast("Redo");
+        }
+
+        function applyState(state) {
+            song = state.song;
+            bpm = state.bpm;
+            isUnrolled = state.isUnrolled;
+            currentScale = state.currentScale;
+            patternScales = state.patternScales;
+            editingPatternIndex = state.editingPatternIndex;
+            if (state.drumRows) drumRows = state.drumRows;
+            if (state.soundConfig) soundConfig = state.soundConfig;
+
+            // Restore selection
+            selectedNotes = new Set(state.selectedNotes || []);
+
+            const bpmInput = document.getElementById('bpmInput');
+            if (bpmInput) bpmInput.value = bpm;
+
+            const scaleSelect = document.getElementById('scaleSelect');
+            if (scaleSelect) scaleSelect.value = currentScale;
+
+            const unrollBtn = document.getElementById('unrollBtn');
+            if (isUnrolled) {
+                unrollBtn.classList.add('unroll-active');
+                scaleSelect.disabled = true;
+                scaleSelect.classList.add('opacity-50');
+            } else {
+                unrollBtn.classList.remove('unroll-active');
+                scaleSelect.disabled = false;
+                scaleSelect.classList.remove('opacity-50');
+            }
+
+            renderEditor();
+            updateTimelineVisuals();
+            triggerDebouncedSave();
+        }
+
+        function updateUndoRedoUI() {
+            const undoBtn = document.getElementById('undoBtn');
+            const redoBtn = document.getElementById('redoBtn');
+            if (undoBtn) undoBtn.disabled = historyStack.length === 0;
+            if (redoBtn) redoBtn.disabled = redoStack.length === 0;
+        }
+
+        // --- Dynamic Config Getters ---
+        function getRowConfigs(targetScale) {
+            const scaleName = targetScale || currentScale;
+            const scaleData = SCALES[scaleName] || SCALES['C Maj Pent'];
+            const synthLabels = isUnrolled ? CHROMATIC_LABELS : scaleData.labels;
+
+            const synthRows = synthLabels.map(label => ({
+                label: label,
+                color: 'bg-sky-500/5',
+                activeColor: 'bg-sky-500',
+                freq: FREQS[label] || 261.63
+            }));
+
+            return [...synthRows, ...drumRows];
+        }
+
+        // --- Sound Randomization Logic ---
+
+
+        // --- Drum Management ---
+        function addDrumRow() {
+            pushToHistory();
+            // Generate a random frequency for a low perc/tom sound
+            const freq = Math.floor(50 + Math.random() * 100);
+            drumRows.push({
+                label: 'Perc',
+                color: 'bg-purple-500/5',
+                activeColor: 'bg-purple-500',
+                type: 'custom',
+                freq: freq
+            });
+
+            // Add row to ALL existing grids
+            song.forEach(grid => {
+                grid.push(Array(STEPS_PER_PATTERN).fill(false));
+            });
+
+            renderEditor();
+            updateTimelineVisuals();
+            triggerDebouncedSave();
+            showToast("Percussion added");
+        }
+
+        // --- Conversion Logic ---
+        function toggleUnroll() {
+            pushToHistory();
+            const oldUnrolled = isUnrolled;
+            isUnrolled = !isUnrolled;
+            const newUnrolled = isUnrolled;
+
+            const newSong = song.map((grid, idx) => {
+                const scale = patternScales[idx];
+                const oldConfigs = oldUnrolled ? CHROMATIC_LABELS : SCALES[scale].labels;
+                const newConfigs = newUnrolled ? CHROMATIC_LABELS : SCALES[scale].labels;
+
+                const newGrid = generateBlankGrid(newUnrolled);
+
+                // Calculate boundaries
+                const drumCount = drumRows.length;
+                const oldSynthRowCount = grid.length - drumCount;
+                // Wait, generateBlankGrid uses current drumRows length. Correct.
+                const newSynthRowCount = (newUnrolled ? 13 : 8);
+
+                // Copy Drums
+                for (let i = 0; i < drumCount; i++) {
+                    if (grid[oldSynthRowCount + i]) {
+                        newGrid[newSynthRowCount + i] = [...grid[oldSynthRowCount + i]];
+                    }
+                }
+
+                // Map Synths
+                for (let r = 0; r < oldSynthRowCount; r++) {
+                    const noteName = oldConfigs[r];
+                    let targetRow = newConfigs.indexOf(noteName);
+
+                    if (targetRow === -1 && oldUnrolled && !newUnrolled) {
+                        const targetFreq = FREQS[noteName];
+                        let minDiff = Infinity;
+                        newConfigs.forEach((name, i) => {
+                            const diff = Math.abs(FREQS[name] - targetFreq);
+                            if (diff < minDiff) { minDiff = diff; targetRow = i; }
+                        });
+                    }
+
+                    if (targetRow !== -1) {
+                        for (let s = 0; s < 16; s++) { if (grid[r][s]) newGrid[targetRow][s] = true; }
+                    }
+                }
+                return newGrid;
+            });
+
+            song = newSong;
+            selectedNotes.clear();
+
+            const btn = document.getElementById('unrollBtn');
+            const select = document.getElementById('scaleSelect');
+            if (isUnrolled) {
+                btn.classList.add('unroll-active');
+                select.disabled = true;
+                select.classList.add('opacity-50');
+            } else {
+                btn.classList.remove('unroll-active');
+                select.disabled = false;
+                select.classList.remove('opacity-50');
+            }
+
+            renderEditor();
+            updateTimelineVisuals();
+            triggerDebouncedSave();
+        }
+
+        function changeScale(newScale) {
+            if (isUnrolled) return;
+            pushToHistory();
+            patternScales[editingPatternIndex] = newScale;
+
+            const grid = song[editingPatternIndex];
+            const newGrid = generateBlankGrid(false);
+
+            // Copy Drums
+            const drumCount = drumRows.length;
+            const srcDrumStart = grid.length - drumCount;
+            const dstDrumStart = newGrid.length - drumCount;
+
+            for (let i = 0; i < drumCount; i++) {
+                if (grid[srcDrumStart + i]) newGrid[dstDrumStart + i] = [...grid[srcDrumStart + i]];
+            }
+
+            // Map Synths (Copy row 1:1 up to new limit)
+            const srcSynthCount = srcDrumStart;
+            const dstSynthCount = dstDrumStart;
+
+            for (let r = 0; r < Math.min(srcSynthCount, dstSynthCount); r++) {
+                newGrid[r] = [...grid[r]];
+            }
+
+            song[editingPatternIndex] = newGrid;
+            renderEditor();
+            updateTimelineVisuals();
+            triggerDebouncedSave();
+        }
+
+        // --- PRESETS ---
+        const PRESETS = {
+            "simple": { kick: [0, 8], snare: [4, 12], hat: [0, 2, 4, 6, 8, 10, 12, 14] },
+            "techno": { kick: [0, 4, 8, 12], snare: [4, 12], hat: [2, 6, 10, 14], bass: [0, 2, 4, 6, 8, 10, 12, 14] },
+            "house": { kick: [0, 4, 8, 12], snare: [4, 12], hat: [2, 6, 10, 14], chord: [0, 3, 6, 9] },
+            "hip hop": { kick: [0, 6, 8], snare: [4, 12], hat: [0, 2, 4, 6, 8, 10, 12, 14] },
+            "trap": { kick: [0, 8], snare: [8], hat: [0, 1, 2, 4, 5, 6, 8, 9, 10] },
+            "rock": { kick: [0, 8, 14], snare: [4, 12], hat: [0, 2, 4, 6, 8, 10, 12, 14] }
+        };
+
+        // --- AI Logic ---
+        async function generatePatternAI(manualStyle = null) {
+            pushToHistory();
+            const promptInput = document.getElementById('aiPromptInput');
+            let prompt = "";
+
+            if (manualStyle) {
+                if (manualStyle === 'random') {
+                    const keys = Object.keys(PRESETS).filter(k => k !== 'empty');
+                    keys.push('procedural', 'procedural');
+                    const picked = keys[Math.floor(Math.random() * keys.length)];
+                    prompt = picked === 'procedural' ? 'random vibe' : picked;
+                    showToast("Generated: " + (picked === 'procedural' ? 'Procedural' : picked.charAt(0).toUpperCase() + picked.slice(1)));
+                } else {
+                    prompt = manualStyle;
+                }
+            } else {
+                prompt = promptInput.value.trim().toLowerCase();
+                const lastPrompt = localStorage.getItem('pulse_last_ai_prompt');
+                if (!prompt && lastPrompt) { prompt = lastPrompt; promptInput.value = lastPrompt; }
+                if (!prompt) return;
+                localStorage.setItem('pulse_last_ai_prompt', prompt);
+            }
+
+            const newGrid = generateBlankGrid(isUnrolled);
+            // Dynamic synth row count
+            const synthRows = newGrid.length - drumRows.length;
+
+            let style = "random";
+            if (prompt.includes("techno")) style = "techno";
+            else if (prompt.includes("house")) style = "house";
+            else if (prompt.includes("hip") || prompt.includes("hop")) style = "hip hop";
+            else if (prompt.includes("trap")) style = "trap";
+            else if (prompt.includes("rock")) style = "rock";
+            else if (prompt.includes("clear") || prompt.includes("empty")) style = "empty";
+            else if (prompt.includes("simple")) style = "simple";
+
+            if (PRESETS[style]) {
+                const p = PRESETS[style];
+                // Offset drum rows dynamically
+                // Drums are at synthRows + 0 (hat), +1 (snare), +2 (kick) for default layout
+                // But we must map to 'type' not index for safety if user added drums.
+                // For now, map to standard indices relative to start of drums
+                const hatRow = synthRows;
+                const snareRow = synthRows + 1;
+                const kickRow = synthRows + 2;
+
+                if (p.kick && kickRow < newGrid.length) p.kick.forEach(s => newGrid[kickRow][s] = true);
+                if (p.snare && snareRow < newGrid.length) p.snare.forEach(s => newGrid[snareRow][s] = true);
+                if (p.hat && hatRow < newGrid.length) p.hat.forEach(s => newGrid[hatRow][s] = true);
+
+                if (p.bass) p.bass.forEach(s => newGrid[synthRows - 1][s] = true);
+                if (p.chord) p.chord.forEach(s => newGrid[Math.floor(synthRows / 2)][s] = true);
+
+            } else {
+                // Procedural
+                const isSimple = prompt.includes("simple");
+                const hatRow = synthRows;
+                const snareRow = synthRows + 1;
+                const kickRow = synthRows + 2;
+
+                if (kickRow < newGrid.length) {
+                    newGrid[kickRow][0] = true;
+                    if (isSimple) { newGrid[kickRow][8] = true; }
+                    else { if (Math.random() > 0.5) newGrid[kickRow][8] = true; if (Math.random() > 0.7) newGrid[kickRow][10] = true; }
+                }
+
+                if (snareRow < newGrid.length) {
+                    newGrid[snareRow][4] = true; newGrid[snareRow][12] = true;
+                }
+
+                if (hatRow < newGrid.length) {
+                    for (let i = 0; i < 16; i += 2) {
+                        if (isSimple) { newGrid[hatRow][i] = true; }
+                        else { if (Math.random() > 0.3) newGrid[hatRow][i] = true; if (Math.random() > 0.8) newGrid[hatRow][i + 1] = true; }
+                    }
+                }
+            }
+
+            song[editingPatternIndex] = newGrid;
+            renderEditor();
+            updateTimelineVisuals();
+            triggerDebouncedSave();
+
+            if (!document.getElementById('aiModal').classList.contains('hidden')) {
+                closeAiModal();
+                promptInput.value = '';
+            }
+        }
+
+        // --- Persistence & Sharing ---
+        function showToast(message) {
+            const toast = document.getElementById('toast');
+            toast.innerText = message;
+            toast.classList.add('show');
+            setTimeout(() => { toast.classList.remove('show'); }, 3000);
+        }
+
+        async function handleShare() {
+            setSyncStatus('saving');
+            const modal = document.getElementById('shareModal');
+            const content = document.getElementById('shareModalContent');
+            const input = document.getElementById('shareUrlInput');
+            const copyBtn = document.getElementById('copyShareLinkBtn');
+
+            input.value = "Generating ID...";
+            copyBtn.innerText = "Copy ID";
+            copyBtn.disabled = true;
+            copyBtn.classList.add('opacity-50');
+            modal.classList.remove('hidden');
+            setTimeout(() => { modal.classList.remove('opacity-0'); content.classList.remove('scale-95'); content.classList.add('scale-100'); }, 10);
+
+            try {
+                const sharedCol = collection(db, 'artifacts', appId, 'public', 'data', 'shared_songs');
+                const docRef = await addDoc(sharedCol, {
+                    song: JSON.stringify(song),
+                    patternScales: JSON.stringify(patternScales),
+                    bpm: bpm,
+                    isUnrolled: isUnrolled,
+                    currentScale: currentScale,
+                    drumRows: JSON.stringify(drumRows),
+                    soundConfig: JSON.stringify(soundConfig),
+                    fxGraph: JSON.stringify(fxGraph), // Save FX Graph
+                    createdAt: Date.now()
+                });
+                const shareId = docRef.id;
+                input.value = shareId;
+                copyBtn.disabled = false;
+                copyBtn.classList.remove('opacity-50');
+
+                copyBtn.onclick = () => {
+                    input.select();
+                    input.setSelectionRange(0, 99999);
+                    if (navigator.clipboard && navigator.clipboard.writeText) {
+                        navigator.clipboard.writeText(shareId).then(() => { copyBtn.innerText = "Copied!"; }).catch(() => { document.execCommand('copy'); copyBtn.innerText = "Copied!"; });
+                    } else {
+                        document.execCommand('copy'); copyBtn.innerText = "Copied!";
+                    }
+                    setTimeout(() => copyBtn.innerText = "Copy ID", 2000);
+                };
+                setSyncStatus('saved');
+            } catch (err) { console.error(err); input.value = "Error"; setSyncStatus('error'); }
+        }
+
+        const loadModal = document.getElementById('loadModal');
+        const loadContent = document.getElementById('loadModalContent');
+
+        function openLoadModal() {
+            loadModal.classList.remove('hidden');
+            setTimeout(() => { loadModal.classList.remove('opacity-0'); loadContent.classList.remove('scale-95'); loadContent.classList.add('scale-100'); }, 10);
+            document.getElementById('loadIdInput').value = ''; document.getElementById('loadIdInput').focus();
+        }
+        function closeLoadModal() {
+            loadModal.classList.add('opacity-0'); loadContent.classList.remove('scale-100'); loadContent.classList.add('scale-95'); setTimeout(() => loadModal.classList.add('hidden'), 300);
+        }
+        function handleConfirmLoad() {
+            const id = document.getElementById('loadIdInput').value.trim();
+            if (id) { loadSharedSong(id); closeLoadModal(); }
+        }
+
+        function closeShareModal() {
+            const modal = document.getElementById('shareModal');
+            const content = document.getElementById('shareModalContent');
+            modal.classList.add('opacity-0'); content.classList.remove('scale-100'); content.classList.add('scale-95'); setTimeout(() => modal.classList.add('hidden'), 300);
+        }
+
+        async function loadSharedSong(id) {
+            pushToHistory();
+            setSyncStatus('loading');
+            try {
+                const docRef = doc(db, 'artifacts', appId, 'public', 'data', 'shared_songs', id);
+                const snap = await getDoc(docRef);
+                if (snap.exists()) {
+                    const data = snap.data();
+                    let loadedSong = JSON.parse(data.song);
+                    if (data.bpm) { bpm = data.bpm; document.getElementById('bpmInput').value = bpm; }
+                    if (data.isUnrolled !== undefined) isUnrolled = data.isUnrolled;
+                    if (data.patternScales) patternScales = JSON.parse(data.patternScales);
+                    else if (data.currentScale) patternScales = new Array(loadedSong.length).fill(data.currentScale);
+                    else patternScales = new Array(loadedSong.length).fill('C Maj Pent');
+
+                    if (data.drumRows) drumRows = JSON.parse(data.drumRows);
+                    else drumRows = JSON.parse(JSON.stringify(DEFAULT_DRUM_ROWS));
+
+                    if (data.soundConfig) soundConfig = JSON.parse(data.soundConfig);
+                    else soundConfig = JSON.parse(JSON.stringify(DEFAULT_SOUND_CONFIG));
+
+                    if (data.fxGraph) {
+                        fxGraph = JSON.parse(data.fxGraph);
+                        if (audioCtx) rebuildAudioGraph();
+                    }
+
+                    // Migration Logic for Song Grid Rows
+                    song = loadedSong.map(grid => {
+                        const expectedRows = (isUnrolled ? 13 : 8) + drumRows.length;
+                        if (grid.length !== expectedRows) {
+                            const newGrid = Array(expectedRows).fill().map(() => Array(STEPS_PER_PATTERN).fill(false));
+                            for (let r = 0; r < Math.min(grid.length, expectedRows); r++) {
+                                newGrid[r] = [...grid[r]];
+                            }
+                            return newGrid;
+                        }
+                        return grid;
+                    });
+
+                    const unrollBtn = document.getElementById('unrollBtn');
+                    const select = document.getElementById('scaleSelect');
+                    if (isUnrolled) {
+                        unrollBtn.classList.add('unroll-active'); select.disabled = true; select.classList.add('opacity-50');
+                    } else {
+                        unrollBtn.classList.remove('unroll-active'); select.disabled = false; select.classList.remove('opacity-50');
+                    }
+
+                    if (editingPatternIndex >= song.length) editingPatternIndex = 0;
+                    renderEditor();
+                    updateTimelineVisuals();
+                    showToast("Shared song loaded!");
+                }
+                setSyncStatus('ready');
+            } catch (err) { console.error(err); setSyncStatus('error'); showToast("Failed to load song."); }
+        }
+
+        async function saveToCloud() {
+            if (!currentUser) return;
+            setSyncStatus('saving');
+            try {
+                const userSongDoc = doc(db, 'artifacts', appId, 'users', currentUser.uid, 'songData', 'main');
+                await setDoc(userSongDoc, {
+                    song: JSON.stringify(song),
+                    patternScales: JSON.stringify(patternScales),
+                    bpm: bpm,
+                    isUnrolled: isUnrolled,
+                    currentScale: currentScale,
+                    currentScale: currentScale,
+                    drumRows: JSON.stringify(drumRows),
+                    soundConfig: JSON.stringify(soundConfig),
+                    fxGraph: JSON.stringify(fxGraph),
+                    lastUpdated: Date.now()
+                }, { merge: true });
+                setSyncStatus('saved');
+            } catch (err) { setSyncStatus('error'); }
+        }
+
+        function triggerDebouncedSave() { clearTimeout(saveTimeout); saveTimeout = setTimeout(saveToCloud, 2000); }
+
+        async function loadFromCloud(user) {
+            setSyncStatus('loading');
+            try {
+                const userSongDoc = doc(db, 'artifacts', appId, 'users', user.uid, 'songData', 'main');
+                const snap = await getDoc(userSongDoc);
+                if (snap.exists()) {
+                    const data = snap.data();
+                    let loadedSong = JSON.parse(data.song);
+                    if (data.bpm) { bpm = data.bpm; document.getElementById('bpmInput').value = bpm; }
+                    if (data.isUnrolled !== undefined) isUnrolled = data.isUnrolled;
+                    if (data.patternScales) patternScales = JSON.parse(data.patternScales);
+                    else if (data.currentScale) patternScales = new Array(loadedSong.length).fill(data.currentScale);
+                    else patternScales = new Array(loadedSong.length).fill('C Maj Pent');
+
+                    if (data.drumRows) drumRows = JSON.parse(data.drumRows);
+                    else drumRows = JSON.parse(JSON.stringify(DEFAULT_DRUM_ROWS));
+
+                    if (data.soundConfig) soundConfig = JSON.parse(data.soundConfig);
+                    else soundConfig = JSON.parse(JSON.stringify(DEFAULT_SOUND_CONFIG));
+
+                    if (data.fxGraph) {
+                        fxGraph = JSON.parse(data.fxGraph);
+                        if (audioCtx) rebuildAudioGraph();
+                    }
+
+                    // Migration Logic
+                    song = loadedSong.map(grid => {
+                        const expectedRows = (isUnrolled ? 13 : 8) + drumRows.length;
+                        if (grid.length !== expectedRows) {
+                            const newGrid = Array(expectedRows).fill().map(() => Array(STEPS_PER_PATTERN).fill(false));
+                            for (let r = 0; r < Math.min(grid.length, expectedRows); r++) {
+                                newGrid[r] = [...grid[r]];
+                            }
+                            return newGrid;
+                        }
+                        return grid;
+                    });
+
+                    const unrollBtn = document.getElementById('unrollBtn');
+                    const select = document.getElementById('scaleSelect');
+                    if (isUnrolled) {
+                        unrollBtn.classList.add('unroll-active'); select.disabled = true; select.classList.add('opacity-50');
+                    } else {
+                        unrollBtn.classList.remove('unroll-active'); select.disabled = false; select.classList.remove('opacity-50');
+                    }
+
+                    if (editingPatternIndex >= song.length) editingPatternIndex = 0;
+                    renderEditor();
+                    updateTimelineVisuals();
+                }
+                setSyncStatus('ready');
+            } catch (err) { setSyncStatus('error'); }
+        }
+
+        function setSyncStatus(status) {
+            const dot = document.getElementById('syncDot');
+            const text = document.getElementById('syncText');
+            if (!dot || !text) return;
+            dot.classList.remove('bg-emerald-500', 'bg-sky-500', 'bg-rose-500', 'bg-slate-700', 'sync-active');
+            switch (status) {
+                case 'saving': dot.classList.add('bg-sky-500', 'sync-active'); text.innerText = 'Syncing'; break;
+                case 'saved': dot.classList.add('bg-emerald-500'); text.innerText = 'Synced'; setTimeout(() => setSyncStatus('ready'), 3000); break;
+                case 'loading': dot.classList.add('bg-sky-500', 'sync-active'); text.innerText = 'Restoring'; break;
+                case 'ready': dot.classList.add('bg-slate-700'); text.innerText = 'Standby'; break;
+                case 'error': dot.classList.add('bg-rose-500'); text.innerText = 'Error'; break;
+            }
+        }
+
+        // --- Audio Node Graph System ---
+        let sequencerOutput = null; // Main gain node from sequencer
+        let masterOutput = null;    // Final output to destination
+
+        // Data Model
+        let fxGraph = {
+            nodes: [
+                { id: "src", type: "source", x: 100, y: 300, params: {} },
+                { id: "out", type: "output", x: 900, y: 300, params: {} }
+            ],
+            connections: [
+                { source: "src", target: "out" }
+            ],
+            nextId: 1
+        };
+
+        // Runtime WebAudio Nodes (Mapped by ID)
+        let activeAudioNodes = new Map();
+
+        // UI State
+        let fxCanvas = null;
+        let fxCtx = null;
+        let isFxOpen = false;
+
+        // Interaction State
+        let dragNodeId = null;
+        let selectedFxNodeId = null; // New: Persistent selection
+        let dragOffset = { x: 0, y: 0 };
+        let cableStartNode = null;
+        let cableMousePos = { x: 0, y: 0 };
+        let isConnecting = false;
+        let fxClipboard = null; // New: Clipboard for nodes
+
+        // Node Definitions
+        const NODE_DEFS = {
+            source: { name: "Sequencer", inputs: 0, outputs: 1, color: "border-emerald-500", params: [] },
+            output: { name: "Speakers", inputs: 1, outputs: 0, color: "border-sky-500", params: [] },
+            delay: {
+                name: "Delay", inputs: 1, outputs: 1, color: "border-violet-500",
+                params: [
+                    { id: "time", label: "Time", min: 0, max: 1, step: 0.01, default: 0.25 },
+                    { id: "feedback", label: "Feedback", min: 0, max: 0.9, step: 0.01, default: 0.4 },
+                    { id: "mix", label: "Mix", min: 0, max: 1, step: 0.01, default: 0.5 }
+                ]
+            },
+            reverb: {
+                name: "Reverb", inputs: 1, outputs: 1, color: "border-indigo-500",
+                params: [
+                    { id: "decay", label: "Decay", min: 0.1, max: 5, step: 0.1, default: 2.0 },
+                    { id: "mix", label: "Mix", min: 0, max: 1, step: 0.01, default: 0.5 }
+                ]
+            },
+            distortion: {
+                name: "Distortion", inputs: 1, outputs: 1, color: "border-orange-500",
+                params: [
+                    { id: "amount", label: "Drive", min: 0, max: 100, step: 1, default: 20 }
+                ]
+            },
+            filter: {
+                name: "Filter", inputs: 1, outputs: 1, color: "border-yellow-500",
+                params: [
+                    { id: "freq", label: "Freq", min: 20, max: 10000, step: 10, default: 1000 },
+                    { id: "q", label: "Resonance", min: 0, max: 20, step: 0.1, default: 1 }
+                ]
+            },
+            compressor: {
+                name: "Compressor", inputs: 1, outputs: 1, color: "border-teal-500",
+                params: [
+                    { id: "thresh", label: "Threshold", min: -60, max: 0, step: 1, default: -24 },
+                    { id: "ratio", label: "Ratio", min: 1, max: 20, step: 0.5, default: 4 }
+                ]
+            }
+        };
+
+        // --- FX Logic ---
+        function initFxGraph() {
+            sequencerOutput = audioCtx.createGain();
+            masterOutput = audioCtx.createGain();
+            masterOutput.connect(audioCtx.destination);
+            rebuildAudioGraph();
+        }
+
+        function rebuildAudioGraph() {
+            if (!audioCtx) return;
+
+            // 1. Disconnect everything
+            activeAudioNodes.forEach(node => {
+                // If it's a compound node { input, output }, disconnect the output
+                if (node.output && node.output.disconnect) node.output.disconnect();
+                else if (node.disconnect) node.disconnect();
+            });
+            activeAudioNodes.clear();
+
+            // 2. Create Nodes
+            fxGraph.nodes.forEach(nData => {
+                let audioNode;
+                if (nData.type === 'source') {
+                    audioNode = sequencerOutput;
+                } else if (nData.type === 'output') {
+                    audioNode = masterOutput;
+                } else {
+                    audioNode = createAudioNode(nData);
+                }
+                activeAudioNodes.set(nData.id, audioNode);
+            });
+
+            // 3. Connect
+            fxGraph.connections.forEach(conn => {
+                const srcInfo = activeAudioNodes.get(conn.source);
+                const dstInfo = activeAudioNodes.get(conn.target);
+
+                if (srcInfo && dstInfo) {
+                    // Normalize: src uses output, dst uses input
+                    const sourceNode = srcInfo.output || srcInfo;
+                    const destNode = dstInfo.input || dstInfo;
+
+                    try {
+                        sourceNode.connect(destNode);
+                    } catch (e) {
+                        console.error("FX Connection Failed:", conn, e);
+                    }
+                } else {
+                    console.warn("FX Missing Node for connection:", conn);
+                }
+            });
+
+            // Ensure Master Output is connected to physical destination
+            if (masterOutput) {
+                try { masterOutput.connect(audioCtx.destination); } catch (e) { }
+            }
+
+            console.log("Audio Graph Rebuilt. Nodes:", activeAudioNodes.size);
+        }
+
+        function createAudioNode(nData) {
+            const p = nData.params || {};
+            const def = NODE_DEFS[nData.type];
+            if (!def) return audioCtx.createGain();
+
+            switch (nData.type) {
+                case 'delay': {
+                    const input = audioCtx.createGain();
+                    const output = audioCtx.createGain();
+
+                    const split = audioCtx.createGain();
+                    const delay = audioCtx.createDelay(1.0);
+                    const feedback = audioCtx.createGain();
+                    const wet = audioCtx.createGain();
+                    const dry = audioCtx.createGain();
+
+                    // Params
+                    const timeVal = p.time ?? 0.25;
+                    const feedVal = p.feedback ?? 0.4;
+                    const mixVal = p.mix ?? 0.5;
+
+                    delay.delayTime.value = timeVal;
+                    feedback.gain.value = feedVal;
+                    wet.gain.value = mixVal;
+                    dry.gain.value = 1 - mixVal;
+
+                    // Graph: 
+                    // Input -> Split
+                    // Split -> Dry -> Output
+                    // Split -> Delay -> Wet -> Output
+                    // Delay -> Feedback -> Delay
+
+                    input.connect(split);
+                    split.connect(dry); dry.connect(output);
+                    split.connect(delay); delay.connect(wet); wet.connect(output);
+                    delay.connect(feedback); feedback.connect(delay);
+
+                    // Return compound object with references for parameter updates
+                    return { input, output, delay, feedback, wet, dry };
+                }
+
+                case 'filter': {
+                    const f = audioCtx.createBiquadFilter();
+                    f.type = 'lowpass';
+                    f.frequency.value = p.freq ?? 1000;
+                    f.Q.value = p.q ?? 1;
+                    return f; // Simple enough to return directly
+                }
+
+                case 'distortion': {
+                    const dist = audioCtx.createWaveShaper();
+                    dist.curve = makeDistortionCurve(p.amount ?? 20);
+                    dist.oversample = '4x';
+                    return dist;
+                }
+
+                case 'reverb': {
+                    const input = audioCtx.createGain();
+                    const output = audioCtx.createGain();
+                    const conv = audioCtx.createConvolver();
+                    const wet = audioCtx.createGain();
+                    const dry = audioCtx.createGain();
+
+                    conv.buffer = impulseResponse(p.decay ?? 2.0, p.decay ?? 2.0, false);
+                    const mixVal = p.mix ?? 0.5;
+
+                    wet.gain.value = mixVal;
+                    dry.gain.value = 1 - mixVal;
+
+                    input.connect(dry); dry.connect(output);
+                    input.connect(conv); conv.connect(wet); wet.connect(output);
+
+                    return { input, output, conv, wet, dry };
+                }
+
+                case 'compressor': {
+                    const comp = audioCtx.createDynamicsCompressor();
+                    comp.threshold.value = p.thresh ?? -24;
+                    comp.ratio.value = p.ratio ?? 4;
+                    return comp;
+                }
+
+                default:
+                    return audioCtx.createGain();
+            }
+        }
+
+        // Utils for FX
+        function makeDistortionCurve(amount) {
+            const k = typeof amount === 'number' ? amount : 50;
+            const n_samples = 44100;
+            const curve = new Float32Array(n_samples);
+            const deg = Math.PI / 180;
+            for (let i = 0; i < n_samples; ++i) {
+                const x = (i * 2) / n_samples - 1;
+                curve[i] = (3 + k) * x * 20 * deg / (Math.PI + k * Math.abs(x));
+            }
+            return curve;
+        }
+
+        function impulseResponse(duration, decay, reverse) {
+            const sampleRate = audioCtx.sampleRate;
+            const length = sampleRate * duration;
+            const impulse = audioCtx.createBuffer(2, length, sampleRate);
+            const left = impulse.getChannelData(0);
+            const right = impulse.getChannelData(1);
+            for (let i = 0; i < length; i++) {
+                const n = reverse ? length - i : i;
+                left[i] = (Math.random() * 2 - 1) * Math.pow(1 - n / length, decay);
+                right[i] = (Math.random() * 2 - 1) * Math.pow(1 - n / length, decay);
+            }
+            return impulse;
+        }
+
+        function updateNodeParam(nodeId, paramId, value) {
+            const node = fxGraph.nodes.find(n => n.id === nodeId);
+            if (!node) return;
+            if (!node.params) node.params = {};
+            const numValue = parseFloat(value);
+            node.params[paramId] = numValue;
+
+            // Apply live
+            const audioNode = activeAudioNodes.get(nodeId);
+            if (!audioNode) return;
+
+            // Simple mapping
+            try {
+                if (node.type === 'filter') {
+                    if (paramId === 'freq') audioNode.frequency.value = numValue;
+                    if (paramId === 'q') audioNode.Q.value = numValue;
+                } else if (node.type === 'delay') {
+                    if (audioNode.delay && paramId === 'time') audioNode.delay.delayTime.value = numValue;
+                    if (audioNode.feedback && paramId === 'feedback') audioNode.feedback.gain.value = numValue;
+                    if (audioNode.wet && paramId === 'mix') {
+                        audioNode.wet.gain.value = numValue;
+                        audioNode.dry.gain.value = 1 - numValue;
+                    }
+                } else if (node.type === 'distortion') {
+                    if (paramId === 'amount') audioNode.curve = makeDistortionCurve(numValue);
+                } else if (node.type === 'compressor') {
+                    if (paramId === 'thresh') audioNode.threshold.value = numValue;
+                    if (paramId === 'ratio') audioNode.ratio.value = numValue;
+                } else if (node.type === 'reverb') {
+                    if (audioNode.conv && paramId === 'decay') audioNode.conv.buffer = impulseResponse(numValue, numValue, false);
+                    if (audioNode.wet && paramId === 'mix') {
+                        audioNode.wet.gain.value = numValue;
+                        audioNode.dry.gain.value = 1 - numValue;
+                    }
+                }
+            } catch (e) { }
+            triggerDebouncedSave();
+        }
+
+
+        // --- UI Logic ---
+        function renderFxGraph() {
+            const container = document.getElementById('fxNodesContainer');
+            container.innerHTML = '';
+
+            fxGraph.nodes.forEach(n => {
+                const def = NODE_DEFS[n.type];
+                const isSel = n.id === selectedFxNodeId;
+                const el = document.createElement('div');
+                el.className = `fx-node ${def.color} ${isSel ? 'selected ring-2 ring-white scale-105' : ''}`;
+                el.style.left = n.x + 'px';
+                el.style.top = n.y + 'px';
+                el.id = `fx-node-${n.id}`;
+                el.dataset.id = n.id;
+
+                // Allow clicking to select
+                el.onclick = (e) => {
+                    e.stopPropagation();
+                    selectedFxNodeId = n.id;
+                    renderFxGraph();
+                };
+
+                let paramsHtml = '';
+                if (def.params.length > 0) {
+                    paramsHtml = `<div class="fx-body">` + def.params.map(p => {
+                        const val = (n.params && n.params[p.id] !== undefined) ? n.params[p.id] : p.default;
+                        return `
+                           <div class="fx-param">
+                               <div class="flex justify-between">
+                                  <label>${p.label}</label>
+                                  <span class="text-[9px] text-slate-400 font-mono">${val}</span>
+                               </div>
+                               <input type="range" class="nodrag" 
+                                    min="${p.min}" max="${p.max}" step="${p.step}" value="${val}"
+                                    oninput="updateNodeParam('${n.id}', '${p.id}', this.value); this.previousElementSibling.lastElementChild.innerText = this.value;">
+                           </div>
+                       `;
+                    }).join('') + `</div>`;
+                }
+
+                el.innerHTML = `
+                    <div class="fx-header">
+                        ${def.name}
+                        ${n.type !== 'source' && n.type !== 'output' ?
+                        `<button class="text-xs opacity-50 hover:opacity-100 hover:text-rose-500" onclick="deleteFxNode('${n.id}')">✕</button>` : ''}
+                    </div>
+                    ${paramsHtml}
+                    ${def.inputs > 0 ? `<div class="fx-port fx-port-in" onmousedown="startCable(event, '${n.id}', 'in')"></div>` : ''}
+                    ${def.outputs > 0 ? `<div class="fx-port fx-port-out" onmousedown="startCable(event, '${n.id}', 'out')"></div>` : ''}
+                `;
+
+                el.onmousedown = (e) => {
+                    if (e.target.tagName === 'INPUT' || e.target.classList.contains('fx-port')) return;
+                    startNodeDrag(e, n.id);
+                };
+
+                container.appendChild(el);
+            });
+
+            drawCables();
+        }
+
+        function drawCables() {
+            if (!fxCtx) return;
+            fxCtx.clearRect(0, 0, fxCanvas.width, fxCanvas.height);
+
+            fxCtx.lineCap = "round";
+            fxCtx.lineWidth = 3;
+
+            // Draw existing connections
+            fxGraph.connections.forEach(conn => {
+                const srcNode = fxGraph.nodes.find(n => n.id === conn.source);
+                const dstNode = fxGraph.nodes.find(n => n.id === conn.target);
+                if (srcNode && dstNode) {
+                    drawBezier(
+                        srcNode.x + 160, srcNode.y + 20,
+                        dstNode.x, dstNode.y + 20,
+                        '#38bdf8',
+                        conn.isNew || false
+                    );
+                }
+            });
+
+            // Draw dragging cable
+            if (isConnecting) {
+                const startNode = fxGraph.nodes.find(n => n.id === cableStartNode);
+                let startX = startNode.x + 160;
+                let startY = startNode.y + 20;
+                // If dragging FROM Input, we reverse? Assuming dragging OUTPUT for now.
+                drawBezier(startX, startY, cableMousePos.x, cableMousePos.y, '#fb7185');
+            }
+        }
+
+        function drawBezier(x1, y1, x2, y2, color, isNew = false) {
+            fxCtx.beginPath();
+
+            // Create gradient for cable
+            const gradient = fxCtx.createLinearGradient(x1, y1, x2, y2);
+            if (isNew) {
+                // Bright at both ends, fading slightly in middle
+                gradient.addColorStop(0, '#f472b6');
+                gradient.addColorStop(0.3, color);
+                gradient.addColorStop(0.7, color);
+                gradient.addColorStop(1, '#f472b6');
+            } else {
+                gradient.addColorStop(0, color);
+                gradient.addColorStop(1, color);
+            }
+
+            fxCtx.strokeStyle = gradient;
+            fxCtx.lineWidth = isNew ? 4 : 3;
+            const cp1x = x1 + Math.abs(x2 - x1) * 0.5;
+            const cp2x = x2 - Math.abs(x2 - x1) * 0.5;
+            fxCtx.moveTo(x1, y1);
+            fxCtx.bezierCurveTo(cp1x, y1, cp2x, y2, x2, y2);
+            fxCtx.stroke();
+        }
+
+        function handleFxKeyDown(e) {
+            if (!isFxOpen) return;
+            // Delete
+            if (e.key === 'Delete' || e.key === 'Backspace') {
+                if (selectedFxNodeId && selectedFxNodeId !== 'src' && selectedFxNodeId !== 'out') {
+                    deleteFxNode(selectedFxNodeId);
+                    selectedFxNodeId = null;
+                }
+            }
+
+            // Clipboard
+            if (e.ctrlKey || e.metaKey) {
+                if (e.key === 'x' && selectedFxNodeId && selectedFxNodeId !== 'src' && selectedFxNodeId !== 'out') {
+                    // Cut
+                    const node = fxGraph.nodes.find(n => n.id === selectedFxNodeId);
+                    if (node) {
+                        fxClipboard = JSON.parse(JSON.stringify(node));
+                        deleteFxNode(selectedFxNodeId); // This logic needs to heal too? 
+                        // Current deleteFxNode destroys connections.
+                        // Let's rely on standard delete behavior for now as healing on generic delete is ambiguous.
+                        selectedFxNodeId = null;
+                        showToast("Node Cut");
+                    }
+                }
+                if (e.key === 'c' && selectedFxNodeId) {
+                    // Copy
+                    const node = fxGraph.nodes.find(n => n.id === selectedFxNodeId);
+                    if (node) {
+                        fxClipboard = JSON.parse(JSON.stringify(node));
+                        showToast("Node Copied");
+                    }
+                }
+                if (e.key === 'v') {
+                    // Paste
+                    if (fxClipboard) {
+                        const id = `node_${fxGraph.nextId++}`;
+
+                        // Calculate position
+                        let spawnX = 400, spawnY = 300;
+                        let targetNode = null;
+
+                        if (selectedFxNodeId) {
+                            const sel = fxGraph.nodes.find(n => n.id === selectedFxNodeId);
+                            if (sel) {
+                                spawnX = sel.x + 250;
+                                spawnY = sel.y;
+                                targetNode = sel;
+                            }
+                        } else if (fxClipboard.x) {
+                            spawnX = fxClipboard.x + 50;
+                            spawnY = fxClipboard.y + 50;
+                        }
+
+                        const newNode = { ...fxClipboard, id: id, x: spawnX, y: spawnY };
+                        fxGraph.nodes.push(newNode);
+
+                        // Smart Connect (Insert After)
+                        if (targetNode) {
+                            // 1. Find what targetNode was connected TO
+                            const outConnIndex = fxGraph.connections.findIndex(c => c.source === targetNode.id);
+                            if (outConnIndex !== -1) {
+                                // Insert in between
+                                const oldTargetId = fxGraph.connections[outConnIndex].target;
+                                fxGraph.connections.splice(outConnIndex, 1);
+
+                                fxGraph.connections.push({ source: targetNode.id, target: id });
+                                fxGraph.connections.push({ source: id, target: oldTargetId });
+                            } else {
+                                // Just append
+                                fxGraph.connections.push({ source: targetNode.id, target: id });
+                            }
+                        }
+
+                        renderFxGraph();
+                        rebuildAudioGraph();
+                        selectedFxNodeId = id; // Select new
+                        showToast("Node Pasted");
+                    }
+                }
+            }
+        }
+        window.addEventListener('keydown', handleFxKeyDown);
+
+        function deleteFxNode(id) {
+            // Check for healing opportunity (Input -> Node -> Output)
+            const inConns = fxGraph.connections.filter(c => c.target === id);
+            const outConns = fxGraph.connections.filter(c => c.source === id);
+
+            // If strictly 1 in, 1 out, we can heal
+            if (inConns.length === 1 && outConns.length === 1) {
+                const src = inConns[0].source;
+                const dst = outConns[0].target;
+                // Add healed connection if not existing
+                if (!fxGraph.connections.find(c => c.source === src && c.target === dst)) {
+                    fxGraph.connections.push({ source: src, target: dst });
+                }
+            }
+
+            fxGraph.nodes = fxGraph.nodes.filter(n => n.id !== id);
+            fxGraph.connections = fxGraph.connections.filter(c => c.source !== id && c.target !== id);
+            renderFxGraph();
+            rebuildAudioGraph();
+            triggerDebouncedSave();
+        }
+
+        function addFxNode(type, x, y) {
+            const id = `node_${fxGraph.nextId++}`;
+            fxGraph.nodes.push({ id, type, x, y, params: {} });
+            renderFxGraph();
+            rebuildAudioGraph();
+            triggerDebouncedSave();
+        }
+
+        // Event Handlers for Graph
+        function startNodeDrag(e, id) {
+            dragNodeId = id;
+            selectedFxNodeId = id; // Select on drag start
+            const node = fxGraph.nodes.find(n => n.id === id);
+            dragOffset = { x: e.clientX - node.x, y: e.clientY - node.y };
+            window.addEventListener('mousemove', handleNodeDrag);
+            window.addEventListener('mouseup', endNodeDrag);
+
+            // Listen for Shift key changes
+            window.addEventListener('keydown', handleShiftVisual);
+            window.addEventListener('keyup', handleShiftVisual);
+
+            renderFxGraph(); // Update selection visual
+        }
+
+        function handleShiftVisual(e) {
+            const overlay = document.getElementById('fxOverlay');
+            if (!overlay) return;
+            if (e.shiftKey) {
+                overlay.classList.add('shift-mode');
+            } else {
+                overlay.classList.remove('shift-mode');
+            }
+        }
+        function handleNodeDrag(e) {
+            if (!dragNodeId) return;
+            const node = fxGraph.nodes.find(n => n.id === dragNodeId);
+            node.x = e.clientX - dragOffset.x;
+            node.y = e.clientY - dragOffset.y;
+            // Immediate DOM update for perf
+            const el = document.getElementById(`fx-node-${dragNodeId}`);
+            if (el) { el.style.left = node.x + 'px'; el.style.top = node.y + 'px'; }
+            drawCables();
+        }
+        function endNodeDrag(e) {
+            window.removeEventListener('mousemove', handleNodeDrag);
+            window.removeEventListener('mouseup', endNodeDrag);
+            window.removeEventListener('keydown', handleShiftVisual);
+            window.removeEventListener('keyup', handleShiftVisual);
+
+            // Clear shift mode visual
+            const overlay = document.getElementById('fxOverlay');
+            if (overlay) overlay.classList.remove('shift-mode');
+
+            // Shift + Drop Logic
+            if (e.shiftKey && dragNodeId) {
+                const node = fxGraph.nodes.find(n => n.id === dragNodeId);
+                if (node) {
+                    const nx = node.x + 80;
+                    const ny = node.y + 50;
+                    let inserted = false;
+
+                    // INSERT LOGIC (Check against cables)
+                    for (let i = 0; i < fxGraph.connections.length; i++) {
+                        const conn = fxGraph.connections[i];
+                        const src = fxGraph.nodes.find(n => n.id === conn.source);
+                        const dst = fxGraph.nodes.find(n => n.id === conn.target);
+                        if (!src || !dst) continue;
+                        if (conn.source === dragNodeId || conn.target === dragNodeId) continue;
+
+                        const sx = src.x + 160; const sy = src.y + 20;
+                        const dx = dst.x; const dy = dst.y + 20;
+                        const dist = distToSegment(nx, ny, sx, sy, dx, dy);
+
+                        if (dist < 40) {
+                            fxGraph.connections.splice(i, 1);
+                            // Mark these as new connections for visual highlight
+                            fxGraph.connections.push({ source: conn.source, target: dragNodeId, isNew: true });
+                            fxGraph.connections.push({ source: dragNodeId, target: conn.target, isNew: true });
+                            rebuildAudioGraph();
+                            renderFxGraph(); // Refresh cables
+                            showToast("Node Inserted into Chain");
+                            // Clear isNew after a short delay
+                            setTimeout(() => {
+                                fxGraph.connections.forEach(c => c.isNew = false);
+                                drawCables();
+                            }, 1500);
+                            inserted = true;
+                            break;
+                        }
+                    }
+
+                    // DETACH LOGIC (If Shift held but NOT inserted)
+                    // If node is connected in a chain (In -> Node -> Out), detach and heal (In -> Out)
+                    if (!inserted) {
+                        const inConnIndex = fxGraph.connections.findIndex(c => c.target === dragNodeId);
+                        const outConnIndex = fxGraph.connections.findIndex(c => c.source === dragNodeId);
+
+                        if (inConnIndex !== -1 && outConnIndex !== -1) {
+                            const inConn = fxGraph.connections[inConnIndex];
+                            const outConn = fxGraph.connections[outConnIndex];
+
+                            // Remove both
+                            fxGraph.connections = fxGraph.connections.filter(c => c !== inConn && c !== outConn);
+
+                            // Heal (oldSource -> oldTarget)
+                            // Check if connection already exists?
+                            const exists = fxGraph.connections.find(c => c.source === inConn.source && c.target === outConn.target);
+                            if (!exists) {
+                                fxGraph.connections.push({ source: inConn.source, target: outConn.target, isNew: true });
+                            }
+
+                            rebuildAudioGraph();
+                            renderFxGraph(); // Refresh cables
+                            showToast("Node Detached from Chain");
+                            setTimeout(() => {
+                                fxGraph.connections.forEach(c => c.isNew = false);
+                                drawCables();
+                            }, 1500);
+                        }
+                    }
+                }
+            }
+
+            dragNodeId = null;
+            renderFxGraph(); // Always refresh to snap cables
+            triggerDebouncedSave();
+        }
+
+        function distToSegment(px, py, x1, y1, x2, y2) {
+            const l2 = (x2 - x1) ** 2 + (y2 - y1) ** 2;
+            if (l2 === 0) return Math.hypot(px - x1, py - y1);
+            let t = ((px - x1) * (x2 - x1) + (py - y1) * (y2 - y1)) / l2;
+            t = Math.max(0, Math.min(1, t));
+            return Math.hypot(px - (x1 + t * (x2 - x1)), py - (y1 + t * (y2 - y1)));
+        }
+
+        function startCable(e, nodeId, type) {
+            e.stopPropagation();
+            if (type === 'out') {
+                isConnecting = true;
+                cableStartNode = nodeId;
+                cableMousePos = { x: e.clientX, y: e.clientY };
+                window.addEventListener('mousemove', handleCableDrag);
+                window.addEventListener('mouseup', endCableDrag);
+            }
+        }
+        function handleCableDrag(e) {
+            cableMousePos = { x: e.clientX, y: e.clientY };
+            drawCables();
+        }
+        function endCableDrag(e) {
+            isConnecting = false;
+            window.removeEventListener('mousemove', handleCableDrag);
+            window.removeEventListener('mouseup', endCableDrag);
+
+            // Hit test
+            const els = document.elementsFromPoint(e.clientX, e.clientY);
+            const port = els.find(el => el.classList.contains('fx-port-in'));
+            if (port) {
+                const targetEl = port.closest('.fx-node');
+                const targetId = targetEl.dataset.id;
+                // Avoid self & dupes
+                if (targetId !== cableStartNode) {
+                    // Check if input is already occupied
+                    const existingIdx = fxGraph.connections.findIndex(c => c.target === targetId);
+                    if (existingIdx !== -1) {
+                        // Remove existing connection (Exclusive Input)
+                        fxGraph.connections.splice(existingIdx, 1);
+                    }
+
+                    if (!fxGraph.connections.find(c => c.source === cableStartNode && c.target === targetId)) {
+                        fxGraph.connections.push({ source: cableStartNode, target: targetId });
+                        rebuildAudioGraph();
+                        triggerDebouncedSave();
+                    }
+                }
+            }
+            renderFxGraph();
+        }
+
+        // Helper to update FX Graph UI sizing
+        function resizeFxCanvas() {
+            if (fxCanvas) {
+                fxCanvas.width = window.innerWidth;
+                fxCanvas.height = window.innerHeight;
+                drawCables();
+            }
+        }
+
+        // Expose to window for inline HTML handlers
+        window.startCable = startCable;
+        window.deleteFxNode = deleteFxNode;
+        window.updateNodeParam = updateNodeParam;
+
+        // --- Audio ---
+        function createKick(time) {
+            const dest = sequencerOutput; // REPLACED: was audioCtx.destination
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            osc.connect(gain); gain.connect(dest);
+            osc.frequency.setValueAtTime(soundConfig.kick.freq, time);
+            osc.frequency.exponentialRampToValueAtTime(0.01, time + soundConfig.kick.decay);
+            gain.gain.setValueAtTime(0.8, time);
+            gain.gain.exponentialRampToValueAtTime(0.01, time + soundConfig.kick.decay);
+            osc.start(time); osc.stop(time + soundConfig.kick.decay);
+        }
+        function createSnare(time) {
+            const dest = sequencerOutput;
+            const noise = audioCtx.createBufferSource();
+            const buffer = audioCtx.createBuffer(1, audioCtx.sampleRate * 0.1, audioCtx.sampleRate);
+            const data = buffer.getChannelData(0);
+            for (let i = 0; i < data.length; i++) data[i] = Math.random() * 2 - 1;
+            noise.buffer = buffer;
+            const filter = audioCtx.createBiquadFilter();
+            filter.type = 'highpass'; filter.frequency.value = soundConfig.snare.freq;
+            const gain = audioCtx.createGain();
+            gain.gain.setValueAtTime(soundConfig.snare.mix, time);
+            gain.gain.exponentialRampToValueAtTime(0.01, time + soundConfig.snare.decay);
+            noise.connect(filter); filter.connect(gain); gain.connect(dest);
+            noise.start(time);
+            const osc = audioCtx.createOscillator();
+            const oscGain = audioCtx.createGain();
+            osc.type = 'triangle';
+            osc.frequency.setValueAtTime(200, time);
+            oscGain.gain.setValueAtTime(1 - soundConfig.snare.mix, time);
+            oscGain.gain.exponentialRampToValueAtTime(0.01, time + 0.1);
+            osc.connect(oscGain); oscGain.connect(dest);
+            osc.start(time); osc.stop(time + 0.15);
+        }
+        function createHiHat(time) {
+            const dest = sequencerOutput;
+            const bufferSize = audioCtx.sampleRate * 0.05;
+            const buffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
+            const data = buffer.getChannelData(0);
+            for (let i = 0; i < bufferSize; i++) data[i] = Math.random() * 2 - 1;
+            const noise = audioCtx.createBufferSource();
+            noise.buffer = buffer;
+            const filter = audioCtx.createBiquadFilter();
+            filter.type = 'bandpass'; filter.frequency.value = soundConfig.hat.freq;
+            const gain = audioCtx.createGain();
+            gain.gain.setValueAtTime(0.3, time);
+            gain.gain.exponentialRampToValueAtTime(0.01, time + soundConfig.hat.decay);
+            noise.connect(filter); filter.connect(gain); gain.connect(dest);
+            noise.start(time);
+        }
+        function createTom(time, freq = 100) {
+            const dest = sequencerOutput;
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            osc.connect(gain); gain.connect(dest);
+            osc.frequency.setValueAtTime(freq, time);
+            osc.frequency.exponentialRampToValueAtTime(10, time + 0.5);
+            gain.gain.setValueAtTime(0.5, time);
+            gain.gain.exponentialRampToValueAtTime(0.01, time + 0.4);
+            osc.start(time); osc.stop(time + 0.5);
+        }
+        function createSynth(freq, time, durationSteps = 1) {
+            const dest = sequencerOutput;
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            const filter = audioCtx.createBiquadFilter();
+            const secondsPerStep = 60.0 / bpm / 4;
+            const durationSecs = durationSteps * secondsPerStep;
+            const release = Math.max(0.05, Math.min(durationSecs, soundConfig.synth.release));
+            osc.type = soundConfig.synth.type;
+            osc.frequency.setValueAtTime(freq, time);
+            filter.type = 'lowpass'; filter.frequency.setValueAtTime(soundConfig.synth.filter, time);
+            osc.connect(filter); filter.connect(gain); gain.connect(dest);
+            gain.gain.setValueAtTime(0, time);
+            gain.gain.linearRampToValueAtTime(0.08, time + 0.01);
+            gain.gain.setValueAtTime(0.08, time + durationSecs - 0.01);
+            gain.gain.exponentialRampToValueAtTime(0.01, time + durationSecs + release);
+            osc.start(time); osc.stop(time + durationSecs + release + 0.1);
+        }
+
+        // --- Logic ---
+        function scheduler() {
+            while (nextNoteTime < audioCtx.currentTime + 0.1) {
+                playStepAtTime(playbackPatternIndex, playbackStepIndex, nextNoteTime);
+                advancePlayback();
+            }
+            timerID = setTimeout(scheduler, 25);
+        }
+        function advancePlayback() {
+            const secondsPerBeat = 60.0 / bpm / 4;
+            nextNoteTime += secondsPerBeat;
+            playbackStepIndex++;
+            if (playbackStepIndex >= STEPS_PER_PATTERN) {
+                playbackStepIndex = 0;
+
+                let effectiveLength = song.length;
+                let lastNonEmpty = song.length - 1;
+                while (lastNonEmpty > 0 && isPatternEmpty(song[lastNonEmpty])) {
+                    lastNonEmpty--;
+                }
+                effectiveLength = lastNonEmpty + 1;
+
+                if (queuedPatternIndex !== -1) {
+                    playbackPatternIndex = queuedPatternIndex;
+                    queuedPatternIndex = -1; loopLockedPatternIndex = -1;
+                    requestAnimationFrame(updateTimelineVisuals);
+                } else if (loopLockedPatternIndex !== -1) {
+                    playbackPatternIndex = loopLockedPatternIndex;
+                } else {
+                    playbackPatternIndex++;
+                    if (playbackPatternIndex >= effectiveLength) {
+                        playbackPatternIndex = 0;
+                    }
+                }
+                if (isFollowMode) {
+                    editingPatternIndex = playbackPatternIndex;
+                    requestAnimationFrame(() => {
+                        renderEditor();
+                        const container = document.getElementById('timelineWrapper');
+                        const clip = document.getElementById(`clip-${playbackPatternIndex}`);
+                        if (container && clip) {
+                            const offset = clip.offsetLeft - container.offsetLeft;
+                            container.scrollTo({ left: offset, behavior: 'smooth' });
+                        }
+                    });
+                }
+            }
+            requestAnimationFrame(updatePlaybackUI);
+        }
+
+        function playStepAtTime(pIndex, sIndex, time) {
+            if (!song[pIndex]) return;
+            const currentGrid = song[pIndex];
+            const scaleName = patternScales[pIndex];
+            const configs = getRowConfigs(scaleName);
+            const synthRows = configs.length - drumRows.length;
+            const secondsPerStep = 60.0 / bpm / 4;
+
+            for (let i = 0; i < synthRows; i++) {
+                const note = currentGrid[i][sIndex];
+                if (note) {
+                    const noteTime = time + (note.o || 0) * secondsPerStep;
+                    createSynth(configs[i].freq, noteTime, note.d || 1);
+                }
+            }
+
+            const drumStart = synthRows;
+            drumRows.forEach((drum, idx) => {
+                const note = currentGrid[drumStart + idx][sIndex];
+                if (note) {
+                    const noteTime = time + (note.o || 0) * secondsPerStep;
+                    if (drum.type === 'hat') createHiHat(noteTime);
+                    else if (drum.type === 'snare') createSnare(noteTime);
+                    else if (drum.type === 'kick') createKick(noteTime);
+                    else if (drum.type === 'custom') createTom(noteTime, drum.freq);
+                }
+            });
+        }
+
+        function updatePlaybackUI() {
+            const totalSeconds = (playbackPatternIndex * STEPS_PER_PATTERN + playbackStepIndex) * (60.0 / bpm / 4);
+            const m = Math.floor(totalSeconds / 60);
+            const s = Math.floor(totalSeconds % 60);
+            const songTime = document.getElementById('songTime');
+            if (songTime) songTime.innerText = `${m}:${s.toString().padStart(2, '0')}`;
+
+            const scrubber = document.getElementById('scrubber');
+            const currentClip = document.getElementById(`clip-${playbackPatternIndex}`);
+            if (currentClip && isPlaying) {
+                if (scrubber) scrubber.classList.remove('hidden');
+                const clipWidth = currentClip.offsetWidth;
+                const progressInClip = playbackStepIndex / STEPS_PER_PATTERN;
+                const leftPos = currentClip.offsetLeft + (progressInClip * clipWidth);
+                if (scrubber) scrubber.style.transform = `translateX(${leftPos}px)`;
+            } else if (!isPlaying) {
+                if (scrubber) scrubber.classList.add('hidden');
+            }
+
+            if (playbackPatternIndex === editingPatternIndex) {
+                document.querySelectorAll('.step').forEach(s => s.classList.remove('playing'));
+                document.querySelectorAll(`.step-at-${playbackStepIndex}`).forEach(s => s.classList.add('playing'));
+            } else {
+                document.querySelectorAll('.step').forEach(s => s.classList.remove('playing'));
+            }
+        }
+
+        // --- UI ---
+        function renderEditor() {
+            const container = document.getElementById('gridContainer');
+            if (!container) return;
+
+            Array.from(container.children).forEach(child => {
+                if (child.id !== 'selectionMarquee') child.remove();
+            });
+
+            container.style.gridTemplateColumns = `80px repeat(${STEPS_PER_PATTERN}, 1fr)`;
+
+            const currentGrid = song[editingPatternIndex];
+            const activeScale = patternScales[editingPatternIndex];
+            if (activeScale) {
+                currentScale = activeScale;
+                const scaleSelect = document.getElementById('scaleSelect');
+                if (scaleSelect && scaleSelect.value !== activeScale) {
+                    scaleSelect.value = activeScale;
+                }
+            }
+
+            const configs = getRowConfigs(activeScale);
+            document.getElementById('patternDisplay').innerText = (editingPatternIndex + 1).toString().padStart(2, '0');
+
+            configs.forEach((config, rowIndex) => {
+                const label = document.createElement('div');
+                label.className = 'flex items-center text-[10px] font-bold uppercase text-slate-500 pr-2 select-none pointer-events-none justify-end';
+
+                if (rowIndex === configs.length - 1) {
+                    const wrapper = document.createElement('div');
+                    wrapper.className = 'flex flex-col items-end gap-0.5 w-full pointer-events-auto';
+
+                    const text = document.createElement('span');
+                    text.innerText = config.label;
+
+                    const addBtn = document.createElement('div');
+                    addBtn.className = 'w-full h-4 mt-1 bg-slate-800/50 rounded flex items-center justify-center cursor-pointer hover:bg-slate-700 text-[8px] text-slate-500 hover:text-sky-400';
+                    addBtn.innerHTML = '+ Add Perc';
+                    addBtn.title = "Add Drum Row";
+                    addBtn.onclick = (e) => {
+                        e.stopPropagation();
+                        addDrumRow();
+                    };
+
+                    wrapper.appendChild(text);
+                    wrapper.appendChild(addBtn);
+                    label.appendChild(wrapper);
+                    label.className = label.className.replace('pointer-events-none', '').replace('items-center', 'items-start pt-1');
+                } else {
+                    label.innerText = config.label;
+                }
+
+                container.appendChild(label);
+
+                for (let s = 0; s < STEPS_PER_PATTERN; s++) {
+                    const note = currentGrid[rowIndex][s];
+                    const isSelected = selectedNotes.has(`${rowIndex},${s}`);
+
+                    let className = `step step-at-${s} h-8 rounded cursor-pointer border border-white/5 hover:brightness-150 transition-all relative `;
+                    if (isUnrolled) className = className.replace('h-8', 'h-6');
+
+                    if (note) className += config.activeColor + ' ';
+                    else className += config.color + ' ';
+
+                    if (isSelected) className += 'selected ';
+
+                    const step = document.createElement('div');
+                    step.className = className;
+                    step.dataset.r = rowIndex;
+                    step.dataset.c = s;
+
+                    if (note) {
+                        // Apply Duration (d)
+                        if (note.d && note.d > 1) {
+                            const span = Math.min(note.d, STEPS_PER_PATTERN - s);
+                            const cellsRemainingInSpan = Math.ceil(span);
+                            step.style.gridColumn = `span ${cellsRemainingInSpan}`;
+                            step.style.width = `${(span / cellsRemainingInSpan) * 100}%`;
+                            step.style.zIndex = '10';
+                        }
+
+                        // Apply offset (o)
+                        if (note.o) {
+                            const offsetPx = note.o * (cachedCellWidth || 40);
+                            step.style.left = `${offsetPx}px`;
+                        }
+
+                        // Resize Handle
+                        const handle = document.createElement('div');
+                        handle.className = 'note-resize-handle absolute right-0 top-0 bottom-0 w-2 cursor-ew-resize opacity-0 group-hover:opacity-100 hover:bg-white/30 transition-opacity z-20';
+                        handle.onmousedown = (e) => {
+                            e.stopPropagation();
+                            startNoteResizing(e, rowIndex, s);
+                        };
+                        step.appendChild(handle);
+
+                        // Skip spanning cells in loop
+                        if (note.d > 1) {
+                            const skipCount = Math.floor(note.d + (note.o || 0)) - 1;
+                            if (skipCount > 0) s += skipCount;
+                        }
+                    }
+
+                    container.appendChild(step);
+                }
+            });
+        }
+
+        function insertPattern(idx) {
+            pushToHistory();
+            const newGrid = generateBlankGrid(isUnrolled);
+            song.splice(idx, 0, newGrid);
+            patternScales.splice(idx, 0, currentScale);
+
+            if (editingPatternIndex >= idx) editingPatternIndex++;
+            if (playbackPatternIndex >= idx) playbackPatternIndex++;
+            if (loopLockedPatternIndex >= idx) loopLockedPatternIndex++;
+            if (queuedPatternIndex >= idx) queuedPatternIndex++;
+
+            editingPatternIndex = idx;
+
+            renderEditor();
+            updateTimelineVisuals();
+            triggerDebouncedSave();
+            showToast("Pattern Inserted");
+        }
+
+        function deletePattern(idx) {
+            if (song.length <= 1) {
+                showToast("Cannot delete last part");
+                return;
+            }
+            pushToHistory();
+            song.splice(idx, 1);
+            patternScales.splice(idx, 1);
+
+            if (editingPatternIndex === idx) {
+                editingPatternIndex = Math.max(0, idx - 1);
+            } else if (editingPatternIndex > idx) {
+                editingPatternIndex--;
+            }
+
+            if (playbackPatternIndex > idx) playbackPatternIndex--;
+            else if (playbackPatternIndex === idx) {
+                if (playbackPatternIndex >= song.length) playbackPatternIndex = 0;
+            }
+
+            if (loopLockedPatternIndex === idx) loopLockedPatternIndex = -1;
+            else if (loopLockedPatternIndex > idx) loopLockedPatternIndex--;
+
+            if (queuedPatternIndex === idx) queuedPatternIndex = -1;
+            else if (queuedPatternIndex > idx) queuedPatternIndex--;
+
+            renderEditor();
+            updateTimelineVisuals();
+            triggerDebouncedSave();
+            showToast("Part deleted");
+        }
+
+        function updateTimelineVisuals() {
+            const container = document.getElementById('timelineContainer');
+            if (!container) return;
+            const scrubber = document.getElementById('scrubber');
+            container.innerHTML = '';
+            container.appendChild(scrubber);
+
+            let marqueeEl = document.getElementById('timelineMarquee');
+            if (!marqueeEl) {
+                marqueeEl = document.createElement('div');
+                marqueeEl.id = 'timelineMarquee';
+                marqueeEl.className = 'absolute border border-sky-400 bg-sky-400/20 z-50 pointer-events-none hidden';
+            }
+            container.appendChild(marqueeEl);
+
+            let effectiveCount = song.length;
+            let lastNonEmpty = song.length - 1;
+            while (lastNonEmpty > 0 && isPatternEmpty(song[lastNonEmpty])) { lastNonEmpty--; }
+            effectiveCount = lastNonEmpty + 1;
+
+            const totalSecs = effectiveCount * STEPS_PER_PATTERN * (60.0 / bpm / 4);
+            const tm = Math.floor(totalSecs / 60);
+            const ts = Math.floor(totalSecs % 60);
+            document.getElementById('totalTime').innerText = `${tm}:${ts.toString().padStart(2, '0')}`;
+
+            song.forEach((pData, idx) => {
+                // Inserter
+                const inserter = document.createElement('div');
+                inserter.className = 'timeline-inserter group cursor-pointer';
+                inserter.innerHTML = `
+                    <div class="w-0.5 h-full bg-slate-700/50 group-hover:bg-sky-500/50 transition-colors"></div>
+                    <div class="absolute w-5 h-5 bg-slate-800 rounded-full border border-slate-600 flex items-center justify-center opacity-0 group-hover:opacity-100 group-hover:scale-110 transition-all shadow-lg z-40 text-sky-400">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+                    </div>
+                `;
+                inserter.onclick = (e) => { e.stopPropagation(); insertPattern(idx); };
+                container.appendChild(inserter);
+
+                // Clip
+                const clip = document.createElement('div');
+                const isEditing = idx === editingPatternIndex;
+                const isSelected = selectedParts.has(idx);
+                const isQueued = idx === queuedPatternIndex;
+                const isLocked = idx === loopLockedPatternIndex;
+                const isEmpty = isPatternEmpty(pData);
+                clip.id = `clip-${idx}`;
+                clip.dataset.idx = idx;
+
+                let classes = `timeline-clip p-3 rounded-2xl border flex flex-col justify-between group cursor-pointer overflow-hidden `;
+                if (isEditing) classes += 'active-edit ';
+                if (isSelected) classes += 'border-sky-500 shadow-[0_0_15px_rgba(56,189,248,0.4)] ';
+                else if (isEmpty) classes += 'border-slate-800 bg-slate-900/10 border-dashed ';
+                else classes += 'border-slate-800 bg-slate-900/40 ';
+
+                if (isLocked) classes += 'loop-locked '; else if (isQueued) classes += 'queued ';
+                clip.className = classes;
+
+                clip.onclick = (e) => {
+                    if (e.target.closest('.delete-btn')) return;
+                    if (isTimelineBusy) { isTimelineBusy = false; return; }
+
+                    if (e.shiftKey || e.ctrlKey || e.metaKey) {
+                        if (selectedParts.has(idx)) selectedParts.delete(idx);
+                        else selectedParts.add(idx);
+                    } else {
+                        selectedParts.clear(); selectedParts.add(idx);
+                        editingPatternIndex = idx; isFollowMode = true;
+                        const toggle = document.getElementById('followToggle');
+                        if (toggle) toggle.checked = true;
+                    }
+                    selectedNotes.clear(); renderEditor(); updateTimelineVisuals();
+                };
+                clip.ondblclick = (e) => {
+                    if (e.target.closest('.delete-btn')) return;
+                    if (isPlaying) { queuedPatternIndex = idx; updateTimelineVisuals(); }
+                };
+                clip.oncontextmenu = (e) => {
+                    e.preventDefault();
+                    if (loopLockedPatternIndex === idx) loopLockedPatternIndex = -1; else loopLockedPatternIndex = idx;
+                    updateTimelineVisuals();
+                };
+                clip.onmousedown = (e) => {
+                    if (e.button === 1) { e.preventDefault(); deletePattern(idx); }
+                };
+
+                const header = document.createElement('div');
+                header.className = 'flex justify-between items-start z-10 mb-2 relative';
+                header.innerHTML = `
+                    <span class="text-[9px] font-black ${isEditing ? 'text-sky-400' : 'text-slate-600'} uppercase tracking-widest">Part ${idx + 1}</span>
+                    <button class="delete-btn opacity-0 group-hover:opacity-100 text-slate-600 hover:text-rose-500 transition-all p-1 hover:bg-slate-800/50 rounded">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6L6 18M6 6l12 12"/></svg>
+                    </button>
+                    ${isQueued ? '<div class="absolute top-0 right-6 bg-violet-500 text-white text-[8px] font-black px-1.5 py-0.5 rounded animate-pulse">NEXT</div>' : ''}
+                    ${isLocked ? '<div class="absolute top-0 right-6 bg-amber-500 text-slate-900 text-[8px] font-black px-1.5 py-0.5 rounded flex items-center gap-1 shadow-lg"><svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg> LOOP</div>' : ''}
+                `;
+                header.querySelector('.delete-btn').onclick = (e) => {
+                    e.stopPropagation(); deletePattern(idx);
+                };
+
+                const preview = document.createElement('div');
+                preview.className = 'grid grid-cols-16 gap-0.5 h-full opacity-60 pointer-events-none';
+                const configs = getRowConfigs(patternScales[idx]);
+                for (let s = 0; s < STEPS_PER_PATTERN; s++) {
+                    const col = document.createElement('div');
+                    col.className = 'flex flex-col gap-px h-full justify-start';
+                    for (let r = 0; r < pData.length; r++) {
+                        const d = document.createElement('div');
+                        if (pData[r][s]) {
+                            const color = configs[r] ? configs[r].activeColor : 'bg-slate-500';
+                            d.className = `w-full h-[3px] rounded-full ${color}`;
+                        } else {
+                            d.className = 'w-full h-[3px] rounded-full bg-slate-800/30';
+                        }
+                        col.appendChild(d);
+                    }
+                    preview.appendChild(col);
+                }
+
+                clip.appendChild(header); clip.appendChild(preview); container.appendChild(clip);
+            });
+
+            // Add Block
+            const addBlock = document.createElement('div');
+            addBlock.className = 'timeline-clip min-w-[60px] ml-1 flex flex-col border border-slate-800 bg-slate-900/20 rounded-2xl overflow-hidden group opacity-60 hover:opacity-100 transition-all';
+
+            const addBtn = document.createElement('div');
+            addBtn.className = 'flex-1 flex items-center justify-center cursor-pointer hover:bg-slate-800/60 hover:text-white text-slate-600 border-b border-slate-800/50 transition-colors';
+            addBtn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="M12 5v14"/></svg>';
+            addBtn.title = "Add Empty Pattern";
+
+            addBtn.onclick = () => { insertPattern(song.length); };
+
+            const dupBtn = document.createElement('div');
+            dupBtn.className = 'flex-1 flex items-center justify-center cursor-pointer hover:bg-slate-800/60 hover:text-white text-slate-600 transition-colors';
+            dupBtn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg>';
+            dupBtn.title = "Duplicate Previous";
+
+            dupBtn.onclick = () => {
+                if (song.length === 0) return;
+                pushToHistory();
+                const lastPattern = song[song.length - 1];
+                const lastScale = patternScales[patternScales.length - 1];
+
+                song.push(JSON.parse(JSON.stringify(lastPattern)));
+                patternScales.push(lastScale);
+
+                editingPatternIndex = song.length - 1;
+                selectedNotes.clear();
+                renderEditor();
+                updateTimelineVisuals();
+                triggerDebouncedSave();
+                setTimeout(() => {
+                    const wrapper = document.getElementById('timelineWrapper');
+                    if (wrapper) wrapper.scrollTo({ left: wrapper.scrollWidth, behavior: 'smooth' });
+                }, 10);
+                showToast("Pattern duplicated");
+            };
+
+            addBlock.appendChild(addBtn);
+            addBlock.appendChild(dupBtn);
+            container.appendChild(addBlock);
+        }
+
+        // --- Handlers ---
+
+        function startNoteResizing(e, r, c) {
+            pushToHistory(); // Save state before resize
+            isResizingNote = true;
+            resizeStart = { x: e.clientX, y: e.clientY };
+            resizeNotePos = { r, c };
+            const note = song[editingPatternIndex][r][c];
+            resizeStartDuration = note ? (note.d || 1) : 1;
+            cachedGridRect = document.getElementById('gridContainer').getBoundingClientRect();
+            const firstCell = document.querySelector('.step');
+            cachedCellWidth = firstCell ? (firstCell.offsetWidth + 6) : 40;
+        }
+
+        function handleGridMouseDown(e) {
+            if (e.button !== 0) return; // Left click only
+
+            const container = document.getElementById('gridContainer');
+            cachedGridRect = container.getBoundingClientRect();
+
+            // Get single cell metrics for calculations
+            const firstCell = container.querySelector('.step');
+            if (firstCell) {
+                cachedCellWidth = firstCell.offsetWidth + 6; // + gap
+                cachedCellHeight = firstCell.offsetHeight + 6; // + gap
+            } else {
+                cachedCellWidth = 40; cachedCellHeight = 40;
+            }
+
+            const x = e.clientX - cachedGridRect.left;
+            const y = e.clientY - cachedGridRect.top;
+
+            // Check if clicked on a note
+            const target = e.target.closest('.step');
+
+            if (e.ctrlKey || e.metaKey) {
+                // Check if Copy-Dragging (Ctrl + Click on ALREADY SELECTED note)
+                if (target && target.classList.contains('selected')) {
+                    isDragging = true;
+                    isCopyDrag = true;
+                    dragDirection = null;
+                    dragStart = { x: e.clientX, y: e.clientY };
+
+                    dragStartSelection = [];
+
+                    // Create Clones for visual feedback AND store original note data
+                    const currentGrid = song[editingPatternIndex];
+                    selectedNotes.forEach(key => {
+                        const [r, c] = key.split(',').map(Number);
+                        const originalEl = container.querySelector(`.step[data-r="${r}"][data-c="${c}"]`);
+                        const noteData = currentGrid[r] && currentGrid[r][c] ? JSON.parse(JSON.stringify(currentGrid[r][c])) : null;
+                        if (originalEl && noteData) {
+                            const clone = originalEl.cloneNode(true);
+                            clone.classList.remove('selected', 'active'); // Visual style for clone
+                            clone.classList.add('bg-white/50', 'border-white'); // Ghost style
+                            clone.style.position = 'absolute';
+                            clone.style.zIndex = '100';
+                            clone.style.left = originalEl.offsetLeft + 'px';
+                            clone.style.top = originalEl.offsetTop + 'px';
+                            clone.style.width = originalEl.offsetWidth + 'px';
+                            clone.style.height = originalEl.offsetHeight + 'px';
+                            clone.style.margin = '0';
+
+                            container.appendChild(clone);
+                            dragStartSelection.push({ r, c, el: clone, noteData: noteData });
+                        }
+                    });
+
+                    return; // Skip marquee logic
+                }
+
+                // Marquee Start (Ctrl + Click on background or unselected)
+                isSelecting = true;
+                selectionStart = { x, y };
+                const marquee = document.getElementById('selectionMarquee');
+                marquee.style.left = x + 'px';
+                marquee.style.top = y + 'px';
+                marquee.style.width = '0px';
+                marquee.style.height = '0px';
+                marquee.style.display = 'block';
+                // Don't clear selection if adding? Standard behavior is new selection
+                if (!e.shiftKey) {
+                    selectedNotes.clear();
+                    renderEditor();
+                }
+            } else if (target && target.classList.contains('selected')) {
+                // Start Normal Dragging (Move)
+                isDragging = true;
+                isCopyDrag = false;
+                dragDirection = null;
+                dragStart = { x: e.clientX, y: e.clientY };
+
+                dragStartSelection = [];
+                const currentGrid = song[editingPatternIndex];
+                selectedNotes.forEach(key => {
+                    const [r, c] = key.split(',').map(Number);
+                    const noteData = currentGrid[r] && currentGrid[r][c] ? JSON.parse(JSON.stringify(currentGrid[r][c])) : null;
+                    dragStartSelection.push({ r, c, el: document.querySelector(`.step[data-r="${r}"][data-c="${c}"]`), noteData: noteData });
+                });
+            } else if (target) {
+                // If we have a selection and click an unselected cell, just deselect
+                if (selectedNotes.size > 0 && !e.shiftKey && !e.ctrlKey && !e.metaKey) {
+                    selectedNotes.clear();
+                    renderEditor();
+                    return;
+                }
+
+                // Regular Click Logic (Toggle Note)
+                const r = parseInt(target.dataset.r);
+                const c = parseInt(target.dataset.c);
+                const currentGrid = song[editingPatternIndex];
+
+                pushToHistory();
+                if (currentGrid[r][c]) {
+                    currentGrid[r][c] = null;
+                } else {
+                    currentGrid[r][c] = { d: desiredNoteDuration, o: 0 };
+                }
+
+                if (currentGrid[r][c] && audioCtx) {
+                    if (audioCtx.state === 'suspended') audioCtx.resume();
+                    const now = audioCtx.currentTime;
+                    const configs = getRowConfigs(patternScales[editingPatternIndex]);
+                    const config = configs[r];
+
+                    if (config.label === 'Kick') createKick(now);
+                    else if (config.label === 'Snare') createSnare(now);
+                    else if (config.label === 'Hi-Hat') createHiHat(now);
+                    else if (config.type === 'custom') createTom(now, config.freq);
+                    else if (config.freq) createSynth(config.freq, now, 1);
+                }
+
+                if (!e.shiftKey && selectedNotes.size > 0) {
+                    selectedNotes.clear();
+                }
+
+                renderEditor();
+                updateTimelineVisuals();
+                triggerDebouncedSave();
+            } else {
+                // Click on background
+                selectedNotes.clear();
+                renderEditor();
+            }
+        }
+
+        function handleWindowMouseMove(e) {
+            if (isSelecting) {
+                // Efficient math-based selection
+                const currentX = e.clientX - cachedGridRect.left;
+                const currentY = e.clientY - cachedGridRect.top;
+
+                const width = Math.abs(currentX - selectionStart.x);
+                const height = Math.abs(currentY - selectionStart.y);
+                const left = Math.min(currentX, selectionStart.x);
+                const top = Math.min(currentY, selectionStart.y);
+
+                const marquee = document.getElementById('selectionMarquee');
+                marquee.style.width = width + 'px';
+                marquee.style.height = height + 'px';
+                marquee.style.left = left + 'px';
+                marquee.style.top = top + 'px';
+
+                const steps = document.getElementById('gridContainer').children;
+                for (let i = 0; i < steps.length; i++) {
+                    const el = steps[i];
+                    if (!el.classList.contains('step')) continue;
+
+                    const elLeft = el.offsetLeft;
+                    const elTop = el.offsetTop;
+                    const elW = el.offsetWidth;
+                    const elH = el.offsetHeight;
+
+                    if (left < elLeft + elW && left + width > elLeft &&
+                        top < elTop + elH && top + height > elTop) {
+                        const r = el.dataset.r;
+                        const c = el.dataset.c;
+                        if (!selectedNotes.has(`${r},${c}`)) {
+                            selectedNotes.add(`${r},${c}`);
+                            el.classList.add('selected');
+                        }
+                    }
+                }
+
+            } else if (isDragging) {
+                const deltaX = e.clientX - dragStart.x;
+                const deltaY = e.clientY - dragStart.y;
+
+                // Determine Axis Lock if not yet set
+                if (!dragDirection) {
+                    // Threshold of 10px to decide direction
+                    if (Math.abs(deltaX) > 10) dragDirection = 'h';
+                    else if (Math.abs(deltaY) > 10) dragDirection = 'v';
+                }
+
+                // Apply visual transform based on locked axis
+                if (dragDirection === 'h') {
+                    dragStartSelection.forEach(item => {
+                        if (item.el) {
+                            item.el.style.transform = `translateX(${deltaX}px)`;
+                            item.el.style.zIndex = 50;
+                        }
+                    });
+                } else if (dragDirection === 'v') {
+                    dragStartSelection.forEach(item => {
+                        if (item.el) {
+                            item.el.style.transform = `translateY(${deltaY}px)`;
+                            item.el.style.zIndex = 50;
+                        }
+                    });
+                }
+            } else if (isResizingNote) {
+                const deltaX = e.clientX - resizeStart.x;
+                const stepDelta = deltaX / (cachedCellWidth || 40);
+                const currentGrid = song[editingPatternIndex];
+                const note = currentGrid[resizeNotePos.r][resizeNotePos.c];
+
+                if (note) {
+                    let newDuration = resizeStartDuration + stepDelta;
+                    if (!e.altKey) {
+                        newDuration = Math.max(1, Math.round(newDuration));
+                    } else {
+                        newDuration = Math.max(0.1, newDuration);
+                    }
+
+                    // Cap at pattern boundary
+                    if (resizeNotePos.c + newDuration > STEPS_PER_PATTERN) {
+                        newDuration = STEPS_PER_PATTERN - resizeNotePos.c;
+                    }
+
+                    note.d = newDuration;
+
+                    // Live visual update
+                    const el = document.querySelector(`.step[data-r="${resizeNotePos.r}"][data-c="${resizeNotePos.c}"]`);
+                    if (el) {
+                        const span = Math.min(newDuration, STEPS_PER_PATTERN - resizeNotePos.c);
+                        const cellsRemainingInSpan = Math.ceil(span);
+                        el.style.gridColumn = `span ${cellsRemainingInSpan}`;
+                        el.style.width = `${(span / cellsRemainingInSpan) * 100}%`;
+                    }
+                }
+            }
+        }
+
+        function handleWindowMouseUp(e) {
+            if (isSelecting) {
+                isSelecting = false;
+                document.getElementById('selectionMarquee').style.display = 'none';
+            } else if (isResizingNote) {
+                isResizingNote = false;
+                renderEditor();
+                triggerDebouncedSave();
+            } else if (isDragging) {
+                isDragging = false;
+                const currentGrid = song[editingPatternIndex];
+
+                // Calculate discrete steps moved
+                const deltaX = e.clientX - dragStart.x;
+                const deltaY = e.clientY - dragStart.y;
+                let moved = false;
+
+                if (dragDirection === 'h') {
+                    const stepDeltaTotal = deltaX / (cachedCellWidth || 40);
+                    let finalDelta = stepDeltaTotal;
+                    if (!e.altKey) {
+                        finalDelta = Math.round(stepDeltaTotal);
+                    }
+
+                    if (finalDelta !== 0) {
+                        pushToHistory();
+                        moved = true;
+                        const tempGrid = currentGrid.map(row => [...row]);
+
+                        // If Moving (not copying), clear old positions first
+                        if (!isCopyDrag) {
+                            selectedNotes.forEach(key => {
+                                const [r, c] = key.split(',').map(Number);
+                                if (currentGrid[r][c]) tempGrid[r][c] = null;
+                            });
+                        }
+
+                        const newSelection = new Set();
+                        dragStartSelection.forEach(item => {
+                            const newC = item.c + finalDelta;
+                            if (newC >= 0 && newC < STEPS_PER_PATTERN) {
+                                // Use stored noteData if available (copy-drag), otherwise read from grid
+                                const sourceData = item.noteData || currentGrid[item.r][item.c];
+                                if (!sourceData) return;
+
+                                const noteData = JSON.parse(JSON.stringify(sourceData));
+                                const cIndex = Math.floor(newC);
+                                const offset = newC - cIndex;
+                                noteData.o = offset; // Offset from step start
+
+                                newSelection.add(`${item.r},${cIndex}`);
+                                tempGrid[item.r][cIndex] = noteData;
+                            }
+                        });
+
+                        song[editingPatternIndex] = tempGrid;
+                        selectedNotes = newSelection;
+                        updateTimelineVisuals();
+                        triggerDebouncedSave();
+                    }
+                } else if (dragDirection === 'v') {
+                    const rowDelta = Math.round(deltaY / (cachedCellHeight || 40));
+
+                    if (rowDelta !== 0) {
+                        pushToHistory();
+                        moved = true;
+                        const tempGrid = currentGrid.map(row => [...row]);
+
+                        if (!isCopyDrag) {
+                            selectedNotes.forEach(key => {
+                                const [r, c] = key.split(',').map(Number);
+                                if (currentGrid[r][c]) tempGrid[r][c] = null;
+                            });
+                        }
+
+                        const newSelection = new Set();
+                        dragStartSelection.forEach(item => {
+                            const newR = item.r + rowDelta;
+                            if (newR >= 0 && newR < currentGrid.length) {
+                                const sourceData = item.noteData || currentGrid[item.r][item.c];
+                                if (!sourceData) return;
+                                newSelection.add(`${newR},${item.c}`);
+                                tempGrid[newR][item.c] = JSON.parse(JSON.stringify(sourceData));
+                            }
+                        });
+
+                        song[editingPatternIndex] = tempGrid;
+                        selectedNotes = newSelection;
+                        updateTimelineVisuals();
+                        triggerDebouncedSave();
+                    }
+                }
+
+                // Cleanup visuals
+                dragStartSelection.forEach(item => {
+                    if (item.el) {
+                        item.el.style.transform = '';
+                        item.el.style.zIndex = '';
+                        if (isCopyDrag) item.el.remove(); // Remove clones
+                    }
+                });
+
+                if (moved && isCopyDrag) showToast("Notes Copied");
+
+                dragDirection = null;
+                isCopyDrag = false;
+                renderEditor();
+            }
+        }
+
+        // --- Timeline Interaction Handlers ---
+
+        function handleTimelineMouseDown(e) {
+            if (e.button !== 0) return;
+            isTimelineBusy = false;
+
+            const container = document.getElementById('timelineContainer');
+            const rect = container.getBoundingClientRect();
+            const x = e.clientX - rect.left;
+            const y = e.clientY - rect.top;
+
+            const target = e.target.closest('.timeline-clip');
+
+            if (e.ctrlKey || e.metaKey) {
+                if (target && selectedParts.has(parseInt(target.dataset.idx))) {
+                    isTimelineWaitingToDrag = true;
+                    isTimelineCopyDrag = true;
+                    timelineDragStart = { x: e.clientX, y: e.clientY };
+                    timelineDragStartIndex = parseInt(target.dataset.idx);
+                    return;
+                }
+
+                // Start marquee selection
+                isTimelineSelecting = true;
+                timelineSelectionStart = { x, y };
+                const marquee = document.getElementById('timelineMarquee');
+                marquee.style.left = x + 'px';
+                marquee.style.top = y + 'px';
+                marquee.style.width = '0px';
+                marquee.style.height = '0px';
+                marquee.style.display = 'block';
+
+                if (!e.shiftKey) {
+                    selectedParts.clear();
+                    updateTimelineVisuals();
+                }
+            } else if (target) {
+                if (selectedParts.has(parseInt(target.dataset.idx))) {
+                    isTimelineWaitingToDrag = true;
+                    isTimelineCopyDrag = false;
+                    timelineDragStart = { x: e.clientX, y: e.clientY };
+                    timelineDragStartIndex = parseInt(target.dataset.idx);
+                }
+            } else {
+                selectedParts.clear();
+                updateTimelineVisuals();
+            }
+        }
+
+        function handleTimelineMouseMove(e) {
+            const container = document.getElementById('timelineContainer');
+            if (!container) return;
+            const rect = container.getBoundingClientRect();
+
+            if (isTimelineSelecting) {
+                const currentX = e.clientX - rect.left;
+                const currentY = e.clientY - rect.top;
+
+                const width = Math.abs(currentX - timelineSelectionStart.x);
+                const height = Math.abs(currentY - timelineSelectionStart.y);
+                const left = Math.min(currentX, timelineSelectionStart.x);
+                const top = Math.min(currentY, timelineSelectionStart.y);
+
+                const marquee = document.getElementById('timelineMarquee');
+                marquee.style.width = width + 'px';
+                marquee.style.height = height + 'px';
+                marquee.style.left = left + 'px';
+                marquee.style.top = top + 'px';
+
+                const clips = container.querySelectorAll('.timeline-clip');
+                clips.forEach(clip => {
+                    const cLeft = clip.offsetLeft;
+                    const cTop = clip.offsetTop;
+                    const cW = clip.offsetWidth;
+                    const cH = clip.offsetHeight;
+
+                    if (left < cLeft + cW && left + width > cLeft &&
+                        top < cTop + cH && top + height > cTop) {
+                        selectedParts.add(parseInt(clip.dataset.idx));
+                    }
+                });
+                updateTimelineVisuals();
+            } else if (isTimelineWaitingToDrag) {
+                const deltaX = Math.abs(e.clientX - timelineDragStart.x);
+                const deltaY = Math.abs(e.clientY - timelineDragStart.y);
+                if (deltaX > 8 || deltaY > 8) {
+                    isTimelineWaitingToDrag = false;
+                    isTimelineDragging = true;
+                }
+            } else if (isTimelineDragging) {
+                // Visual feedback for dragging could be added here
+            }
+        }
+
+        function handleTimelineMouseUp(e) {
+            isTimelineWaitingToDrag = false;
+
+            if (isTimelineSelecting) {
+                isTimelineSelecting = false;
+                document.getElementById('timelineMarquee').style.display = 'none';
+                isTimelineBusy = true; // Block the click event
+            } else if (isTimelineDragging) {
+                isTimelineDragging = false;
+                isTimelineBusy = true; // Block the click event
+                const container = document.getElementById('timelineContainer');
+                const clips = Array.from(container.querySelectorAll('.timeline-clip'));
+
+                // Find where we dropped
+                let dropIndex = -1;
+                const rect = container.getBoundingClientRect();
+                const x = e.clientX - rect.left;
+
+                // Simple logic: find which clip we are over or between
+                for (let i = 0; i < clips.length; i++) {
+                    const c = clips[i];
+                    if (x < c.offsetLeft + (c.offsetWidth / 2)) {
+                        dropIndex = i;
+                        break;
+                    }
+                }
+                if (dropIndex === -1) dropIndex = song.length;
+
+                if (selectedParts.size > 0) {
+                    pushToHistory();
+
+                    const sortedSelected = Array.from(selectedParts).sort((a, b) => a - b);
+                    const movedPatterns = sortedSelected.map(idx => song[idx]);
+                    const movedScales = sortedSelected.map(idx => patternScales[idx]);
+
+                    if (isTimelineCopyDrag) {
+                        // Insert duplicates at dropIndex
+                        song.splice(dropIndex, 0, ...JSON.parse(JSON.stringify(movedPatterns)));
+                        patternScales.splice(dropIndex, 0, ...movedScales);
+
+                        // Select new copies
+                        selectedParts.clear();
+                        for (let i = 0; i < movedPatterns.length; i++) {
+                            selectedParts.add(dropIndex + i);
+                        }
+                        showToast("Parts Duplicated");
+                    } else {
+                        // Move: remove old, insert new
+                        const newSong = [];
+                        const newScales = [];
+
+                        // Build list of non-selected
+                        for (let i = 0; i < song.length; i++) {
+                            if (!selectedParts.has(i)) {
+                                if (newSong.length === dropIndex) {
+                                    newSong.push(...movedPatterns);
+                                    newScales.push(...movedScales);
+                                }
+                                newSong.push(song[i]);
+                                newScales.push(patternScales[i]);
+                            }
+                        }
+                        if (newSong.length <= dropIndex) {
+                            newSong.push(...movedPatterns);
+                            newScales.push(...movedScales);
+                        }
+
+                        song = newSong;
+                        patternScales = newScales;
+
+                        // Re-select moved parts
+                        selectedParts.clear();
+                        let finalIdx = -1;
+                        for (let i = 0; i < song.length; i++) {
+                            if (song[i] === movedPatterns[0]) {
+                                finalIdx = i;
+                                break;
+                            }
+                        }
+                        for (let i = 0; i < movedPatterns.length; i++) {
+                            selectedParts.add(finalIdx + i);
+                        }
+                        showToast("Parts Moved");
+                    }
+
+                    renderEditor();
+                    updateTimelineVisuals();
+                    triggerDebouncedSave();
+                }
+            }
+        }
+
+        function handleContinue() {
+            if (!isPlaying) return;
+            pushToHistory();
+            const card = document.getElementById('editorCard');
+            card.style.transform = 'translateY(-10px) scale(0.99)'; card.style.opacity = '0.8';
+            setTimeout(() => {
+                const currentGrid = song[editingPatternIndex];
+                const newGrid = currentGrid.map(row => [...row]);
+                song.push(newGrid);
+                patternScales.push(patternScales[editingPatternIndex]);
+                editingPatternIndex = song.length - 1;
+                selectedNotes.clear();
+                renderEditor(); updateTimelineVisuals();
+                card.style.transform = 'translateY(0) scale(1)'; card.style.opacity = '1';
+                setTimeout(() => { const wrapper = document.getElementById('timelineWrapper'); if (wrapper) wrapper.scrollTo({ left: wrapper.scrollWidth, behavior: 'smooth' }); }, 50);
+                triggerDebouncedSave();
+            }, 100);
+        }
+
+        function handleReset() {
+            const btn = document.getElementById('resetBtn');
+            if (btn.innerText === 'CONFIRM?') {
+                if (isPlaying) togglePlay();
+                pushToHistory();
+                isUnrolled = false;
+                currentScale = 'C Maj Pent';
+                song = [generateBlankGrid(false)];
+                patternScales = ['C Maj Pent'];
+                drumRows = JSON.parse(JSON.stringify(DEFAULT_DRUM_ROWS)); // Reset Drums
+                soundConfig = JSON.parse(JSON.stringify(DEFAULT_SOUND_CONFIG)); // Reset Sounds
+                bpm = 120;
+                editingPatternIndex = 0; playbackPatternIndex = 0; playbackStepIndex = 0;
+                queuedPatternIndex = -1; loopLockedPatternIndex = -1;
+                selectedNotes.clear();
+
+                document.getElementById('bpmInput').value = bpm;
+                document.getElementById('scaleSelect').value = currentScale;
+                document.getElementById('scaleSelect').disabled = false;
+                document.getElementById('scaleSelect').classList.remove('opacity-50');
+                document.getElementById('unrollBtn').classList.remove('unroll-active');
+
+                btn.innerText = 'RESET'; btn.classList.remove('reset-confirm');
+                renderEditor(); updateTimelineVisuals(); triggerDebouncedSave();
+            } else {
+                btn.innerText = 'CONFIRM?'; btn.classList.add('reset-confirm');
+                clearTimeout(resetTimeout); resetTimeout = setTimeout(() => { btn.innerText = 'RESET'; btn.classList.remove('reset-confirm'); }, 3000);
+            }
+        }
+
+        function togglePlay() {
+            if (!audioCtx) return;
+            if (audioCtx.state === 'suspended') audioCtx.resume();
+
+            isPlaying = !isPlaying;
+
+            const playBtn = document.getElementById('playBtn');
+            const playIcon = document.getElementById('playIcon');
+            const playText = document.getElementById('playText');
+            const contBtn = document.getElementById('continueBtn');
+            const scrubber = document.getElementById('scrubber');
+            const songTime = document.getElementById('songTime');
+
+            if (isPlaying) {
+                playbackPatternIndex = editingPatternIndex;
+                playbackStepIndex = 0;
+                nextNoteTime = audioCtx.currentTime;
+                scheduler();
+
+                if (playBtn) playBtn.classList.replace('bg-sky-500', 'bg-amber-500');
+                if (playIcon) playIcon.innerHTML = '<path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/>';
+                if (playText) playText.innerText = 'STOP';
+                if (contBtn) contBtn.disabled = false;
+            } else {
+                clearTimeout(timerID);
+
+                if (playBtn) playBtn.classList.replace('bg-amber-500', 'bg-sky-500');
+                if (playIcon) playIcon.innerHTML = '<path d="M8 5v14l11-7z"/>';
+                if (playText) playText.innerText = 'START';
+                if (contBtn) contBtn.disabled = true;
+
+                document.querySelectorAll('.step').forEach(s => s.classList.remove('playing'));
+                if (songTime) songTime.innerText = '0:00';
+                if (scrubber) scrubber.classList.add('hidden');
+
+                queuedPatternIndex = -1;
+            }
+            updateTimelineVisuals();
+        }
+
+        // Modal Handlers
+        function openAiModal() {
+            const aiModal = document.getElementById('aiModal');
+            const aiModalContent = document.getElementById('aiModalContent');
+            const aiInput = document.getElementById('aiPromptInput');
+            aiModal.classList.remove('hidden');
+            const lastPrompt = localStorage.getItem('pulse_last_ai_prompt');
+            if (lastPrompt) { aiInput.placeholder = `Last used: "${lastPrompt}" (Press Enter to reuse)`; }
+            else { aiInput.placeholder = "E.g., Simple house beat with a heavy kick..."; }
+            aiInput.value = '';
+            setTimeout(() => { aiModal.classList.remove('opacity-0'); aiModalContent.classList.remove('scale-95'); aiModalContent.classList.add('scale-100'); }, 10);
+            aiInput.focus();
+        }
+        function closeAiModal() {
+            const aiModal = document.getElementById('aiModal');
+            const aiModalContent = document.getElementById('aiModalContent');
+            aiModal.classList.add('opacity-0'); aiModalContent.classList.remove('scale-100'); aiModalContent.classList.add('scale-95'); setTimeout(() => { aiModal.classList.add('hidden'); }, 300);
+        }
+
+        async function initAudio() {
+            if (audioCtx) return;
+            try {
+                const AudioContext = window.AudioContext || window.webkitAudioContext;
+                audioCtx = new AudioContext();
+
+                // Initialize FX System (Base Routing)
+                initFxGraph();
+
+                if (audioCtx.state === 'suspended') await audioCtx.resume();
+                console.log("Audio Initialized");
+
+                document.getElementById('welcomeOverlay').classList.add('opacity-0');
+                setTimeout(() => document.getElementById('welcomeOverlay').style.display = 'none', 700);
+                renderEditor(); updateTimelineVisuals();
+            } catch (e) {
+                console.error("Failed to initialize audio context:", e);
+                alert("Audio initialization failed. Please ensure your browser allows autoplay or try refreshing.");
+            }
+        }
+
+        // --- Initialization and Event Listeners ---
+        function setupEventListeners() {
+            const getEl = (id) => {
+                const el = document.getElementById(id);
+                if (!el) console.warn(`Element with ID '${id}' not found.`);
+                return el;
+            };
+
+            // Main Controls
+            const initBtn = getEl('initBtn');
+            if (initBtn) initBtn.onclick = initAudio;
+
+            const playBtn = getEl('playBtn');
+            if (playBtn) playBtn.onclick = togglePlay;
+
+            const continueBtn = getEl('continueBtn');
+            if (continueBtn) continueBtn.onclick = handleContinue;
+
+            const resetBtn = getEl('resetBtn');
+            if (resetBtn) resetBtn.onclick = handleReset;
+
+            const undoBtn = getEl('undoBtn');
+            if (undoBtn) undoBtn.onclick = undo;
+
+            const redoBtn = getEl('redoBtn');
+            if (redoBtn) redoBtn.onclick = redo;
+
+            const bpmInput = getEl('bpmInput');
+            if (bpmInput) bpmInput.onchange = (e) => {
+                pushToHistory();
+                bpm = Math.max(40, Math.min(240, e.target.value));
+                e.target.value = bpm;
+                triggerDebouncedSave();
+            };
+
+            // Arrangement Controls
+            const fxToggleBtn = getEl('fxToggleBtn');
+            if (fxToggleBtn) fxToggleBtn.onclick = () => {
+                isFxOpen = true;
+                const overlay = document.getElementById('fxOverlay');
+                if (overlay) {
+                    overlay.classList.remove('hidden');
+                    setTimeout(() => overlay.classList.remove('opacity-0'), 10);
+                    resizeFxCanvas();
+                    renderFxGraph();
+                    // initFxGraph(); // REMOVED: Destructive re-init caused audio dropouts
+                    if (!audioCtx) initAudio(); // Ensure audio context is running if not already
+                }
+            };
+
+            const closeFxBtn = getEl('closeFxBtn');
+            if (closeFxBtn) closeFxBtn.onclick = () => {
+                isFxOpen = false;
+                const overlay = document.getElementById('fxOverlay');
+                if (overlay) {
+                    overlay.classList.add('opacity-0');
+                    setTimeout(() => overlay.classList.add('hidden'), 300);
+                }
+            };
+
+            const fxOverlay = getEl('fxOverlay');
+            if (fxOverlay) {
+                fxOverlay.oncontextmenu = (e) => {
+                    e.preventDefault();
+                    const menu = document.getElementById('nodeContextMenu');
+                    menu.style.left = e.clientX + 'px';
+                    menu.style.top = e.clientY + 'px';
+                    menu.classList.remove('hidden');
+
+                    const closeMenu = () => {
+                        menu.classList.add('hidden');
+                        window.removeEventListener('click', closeMenu);
+                    };
+                    setTimeout(() => window.addEventListener('click', closeMenu), 10);
+
+                    menu.dataset.x = e.clientX;
+                    menu.dataset.y = e.clientY;
+                };
+            }
+
+            document.querySelectorAll('.ctx-item').forEach(item => {
+                item.onclick = (e) => {
+                    const menu = document.getElementById('nodeContextMenu');
+                    const spawnX = parseFloat(menu.dataset.x) || 100;
+                    const spawnY = parseFloat(menu.dataset.y) || 100;
+                    addFxNode(item.dataset.type, spawnX, spawnY);
+                };
+            });
+
+            fxCanvas = document.getElementById('fxCanvas');
+            if (fxCanvas) {
+                fxCtx = fxCanvas.getContext('2d');
+                window.addEventListener('resize', resizeFxCanvas);
+            }
+
+            const followToggle = getEl('followToggle');
+            if (followToggle) followToggle.addEventListener('change', (e) => { isFollowMode = e.target.checked; });
+
+            const unrollBtn = getEl('unrollBtn');
+            if (unrollBtn) unrollBtn.onclick = toggleUnroll;
+
+            const scaleSelect = getEl('scaleSelect');
+            if (scaleSelect) scaleSelect.onchange = (e) => changeScale(e.target.value);
+
+            // Random/AI Button
+            const randomBtn = getEl('randomBtn');
+            if (randomBtn) {
+                // Left Click: Randomize Pattern
+                randomBtn.onclick = () => generatePatternAI('random');
+
+                // Right Click: Open Modal
+                randomBtn.oncontextmenu = (e) => {
+                    e.preventDefault();
+                    openAiModal();
+                };
+            }
+
+            // Remix Button
+            const remixBtn = getEl('remixBtn');
+            if (remixBtn) remixBtn.onclick = randomizeDrums;
+
+            const closeAiBtn = getEl('closeAiBtn');
+            if (closeAiBtn) closeAiBtn.onclick = closeAiModal;
+
+            const generateAiBtn = getEl('generateAiBtn');
+            if (generateAiBtn) generateAiBtn.onclick = () => generatePatternAI(); // Modal call
+
+            const aiModal = getEl('aiModal');
+            if (aiModal) aiModal.onclick = (e) => { if (e.target === aiModal) closeAiModal(); };
+
+            // Share/Load
+            const shareBtn = getEl('shareBtn');
+            if (shareBtn) shareBtn.onclick = handleShare;
+
+            const loadBtn = getEl('loadBtn');
+            if (loadBtn) loadBtn.onclick = openLoadModal;
+
+            const closeLoadBtn = getEl('closeLoadBtn');
+            if (closeLoadBtn) closeLoadBtn.onclick = closeLoadModal;
+
+            const confirmLoadBtn = getEl('confirmLoadBtn');
+            if (confirmLoadBtn) confirmLoadBtn.onclick = handleConfirmLoad;
+
+            const closeShareBtn = getEl('closeShareBtn');
+            if (closeShareBtn) closeShareBtn.onclick = closeShareModal;
+
+            const shareModal = getEl('shareModal');
+            if (shareModal) shareModal.onclick = (e) => { if (e.target === shareModal) closeShareModal(); };
+
+            const loadModal = getEl('loadModal');
+            if (loadModal) loadModal.onclick = (e) => { if (e.target === loadModal) closeLoadModal(); };
+
+            // Grid Interaction (Mouse Down)
+            const gridContainer = getEl('gridContainer');
+            if (gridContainer) {
+                gridContainer.addEventListener('mousedown', handleGridMouseDown);
+                gridContainer.addEventListener('wheel', (e) => {
+                    e.preventDefault();
+                    if (e.deltaY > 0) {
+                        desiredNoteDuration = Math.max(0.125, desiredNoteDuration / 2);
+                    } else {
+                        desiredNoteDuration = Math.min(16, desiredNoteDuration * 2);
+                    }
+                    showToast(`Placement Duration: ${desiredNoteDuration} Steps`);
+                }, { passive: false });
+            }
+
+            const timelineContainer = getEl('timelineContainer');
+            if (timelineContainer) timelineContainer.addEventListener('mousedown', handleTimelineMouseDown);
+
+            window.addEventListener('mousemove', (e) => {
+                handleWindowMouseMove(e);
+                handleTimelineMouseMove(e);
+            });
+            window.addEventListener('mouseup', (e) => {
+                handleWindowMouseUp(e);
+                handleTimelineMouseUp(e);
+            });
+
+            // Keyboard Shortcuts
+            window.addEventListener('keydown', (e) => {
+                const isAnyModalOpen = !document.getElementById('aiModal').classList.contains('hidden') ||
+                    !document.getElementById('shareModal').classList.contains('hidden') ||
+                    !document.getElementById('loadModal').classList.contains('hidden');
+
+                if (e.key === 'Escape') {
+                    if (aiModal && !aiModal.classList.contains('hidden')) closeAiModal();
+                    if (shareModal && !shareModal.classList.contains('hidden')) closeShareModal();
+                    if (loadModal && !loadModal.classList.contains('hidden')) closeLoadModal();
+                    selectedParts.clear();
+                    updateTimelineVisuals();
+                    return;
+                }
+
+                const activeTag = document.activeElement.tagName.toLowerCase();
+                if (activeTag === 'input' || activeTag === 'textarea') return;
+
+                if (e.code === 'Space') {
+                    e.preventDefault();
+                    togglePlay();
+                    return;
+                }
+
+                // Duplicate Shortcut (Ctrl+D)
+                if (e.code === 'KeyD' && (e.ctrlKey || e.metaKey)) {
+                    e.preventDefault();
+
+                    if (selectedParts.size > 0) {
+                        pushToHistory();
+                        const sorted = Array.from(selectedParts).sort((a, b) => a - b);
+                        const insertAt = sorted[sorted.length - 1] + 1;
+                        const duplicates = sorted.map(idx => JSON.parse(JSON.stringify(song[idx])));
+                        const dupScales = sorted.map(idx => patternScales[idx]);
+
+                        song.splice(insertAt, 0, ...duplicates);
+                        patternScales.splice(insertAt, 0, ...dupScales);
+
+                        selectedParts.clear();
+                        for (let i = 0; i < sorted.length; i++) {
+                            selectedParts.add(insertAt + i);
+                        }
+
+                        editingPatternIndex = insertAt;
+                        renderEditor();
+                        updateTimelineVisuals();
+                        triggerDebouncedSave();
+                        showToast("Parts Duplicated");
+                        return;
+                    }
+
+                    if (song.length === 0) return;
+
+                    pushToHistory();
+
+                    // Clone current pattern
+                    const currentPattern = song[editingPatternIndex];
+                    const currentScaleName = patternScales[editingPatternIndex];
+
+                    const newPattern = JSON.parse(JSON.stringify(currentPattern));
+
+                    // Insert after
+                    song.splice(editingPatternIndex + 1, 0, newPattern);
+                    patternScales.splice(editingPatternIndex + 1, 0, currentScaleName);
+
+                    // Select new duplicate
+                    editingPatternIndex++;
+
+                    renderEditor();
+                    updateTimelineVisuals();
+                    triggerDebouncedSave();
+
+                    // Scroll to ensure visibility
+                    setTimeout(() => {
+                        const wrapper = document.getElementById('timelineWrapper');
+                        const clip = document.getElementById(`clip-${editingPatternIndex}`);
+                        if (wrapper && clip) {
+                            if (clip.offsetLeft + clip.offsetWidth > wrapper.scrollLeft + wrapper.offsetWidth) {
+                                wrapper.scrollTo({ left: clip.offsetLeft, behavior: 'smooth' });
+                            }
+                        }
+                    }, 50);
+
+                    showToast("Pattern Duplicated");
+                    return;
+                }
+
+                // Copy/Paste Logic (Ctrl/Meta + C/V)
+                if (e.ctrlKey || e.metaKey) {
+                    if (e.code === 'KeyC') {
+                        // Copy current pattern
+                        patternClipboard = {
+                            grid: JSON.parse(JSON.stringify(song[editingPatternIndex])),
+                            scale: patternScales[editingPatternIndex]
+                        };
+                        showToast("Pattern Copied");
+                    }
+                    if (e.code === 'KeyV') {
+                        if (patternClipboard) {
+                            pushToHistory(); // Undo Point
+                            if (e.shiftKey) {
+                                // Paste Insert (Add To)
+                                const newPattern = JSON.parse(JSON.stringify(patternClipboard.grid));
+                                song.splice(editingPatternIndex + 1, 0, newPattern);
+                                patternScales.splice(editingPatternIndex + 1, 0, patternClipboard.scale);
+                                editingPatternIndex++; // Jump to the new part
+                                showToast("Pattern Inserted");
+                            } else {
+                                // Paste Replace
+                                song[editingPatternIndex] = JSON.parse(JSON.stringify(patternClipboard.grid));
+                                patternScales[editingPatternIndex] = patternClipboard.scale;
+                                showToast("Pattern Replaced");
+                            }
+                            renderEditor();
+                            updateTimelineVisuals();
+                            triggerDebouncedSave();
+
+                            // Ensure timeline scrolls if we added something off screen
+                            setTimeout(() => {
+                                const wrapper = document.getElementById('timelineWrapper');
+                                const clip = document.getElementById(`clip-${editingPatternIndex}`);
+                                if (wrapper && clip) {
+                                    if (clip.offsetLeft + clip.offsetWidth > wrapper.scrollLeft + wrapper.offsetWidth) {
+                                        wrapper.scrollTo({ left: clip.offsetLeft, behavior: 'smooth' });
+                                    }
+                                }
+                            }, 50);
+                        }
+                    }
+                    // Undo/Redo Shortcuts
+                    if (e.code === 'KeyZ') {
+                        e.preventDefault();
+                        if (e.shiftKey) redo();
+                        else undo();
+                    }
+                    if (e.code === 'KeyY') {
+                        e.preventDefault();
+                        redo();
+                    }
+                }
+            });
+
+            // AI Input specific
+            const aiInput = getEl('aiPromptInput');
+            if (aiInput) {
+                aiInput.addEventListener('keydown', (e) => {
+                    if ((e.key === 'Enter' && !e.shiftKey) || (e.key === 'Enter' && e.ctrlKey)) {
+                        e.preventDefault(); generatePatternAI();
+                    }
+                });
+            }
+        }
+
+        // --- Start ---
+        // --- Start ---
+        async function initApp() {
+            setupEventListeners();
+
+            if (firebaseReady) {
+                if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                    await signInWithCustomToken(auth, __initial_auth_token);
+                } else {
+                    await signInAnonymously(auth);
+                }
+
+                onAuthStateChanged(auth, (user) => {
+                    const urlParams = new URLSearchParams(window.location.search);
+                    const sharedSongId = urlParams.get('song');
+                    if (sharedSongId) {
+                        loadSharedSong(sharedSongId);
+                        currentUser = user;
+                    } else if (user) {
+                        currentUser = user;
+                        loadFromCloud(user);
+                    }
+                });
+            } else {
+                console.warn("Running in local-only mode.");
+                onAuthStateChanged(auth, (user) => { /* Mock or no-op */ });
+            }
+
+            renderEditor();
+        }
+
+        // Wait for DOM
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', initApp);
+        } else {
+            initApp();
+        }
+    </script>
+</body>
+
+</html>
